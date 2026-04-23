@@ -1,0 +1,39 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Test STEP file for hole detection based on ISO-10303-21'),'2;1');
+FILE_NAME('test_hole.step','2026-04-20T12:00:00',('NIST'),('NIST'),('stepcode','1.0'));
+FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));
+ENDSEC;
+DATA;
+/* Base coordinate system */
+#1 = CARTESIAN_POINT('',(0.0,0.0,0.0));
+#2 = DIRECTION('',(0.0,0.0,1.0));
+#3 = DIRECTION('',(1.0,0.0,0.0));
+#4 = AXIS2_PLACEMENT_3D('Origin',#1,#2,#3);
+
+/* Hole 1: Through hole with radius 5.0 mm at Z=0 */
+#10 = CARTESIAN_POINT('Hole1_Center',(10.0,10.0,0.0));
+#11 = DIRECTION('Hole1_Axis',(0.0,0.0,1.0));
+#12 = DIRECTION('Hole1_RefDir',(1.0,0.0,0.0));
+#13 = AXIS2_PLACEMENT_3D('Hole1_Placement',#10,#11,#12);
+#14 = CYLINDRICAL_SURFACE('Hole1_Surface',#13,5.0);
+#15 = ADVANCED_FACE('Hole1_Face',(#14),.T.);
+
+/* Hole 2: Counterbore hole with radius 8.0 mm at Z=5 */
+#20 = CARTESIAN_POINT('Hole2_Center',(30.0,10.0,5.0));
+#21 = DIRECTION('Hole2_Axis',(0.0,0.0,1.0));
+#22 = DIRECTION('Hole2_RefDir',(1.0,0.0,0.0));
+#23 = AXIS2_PLACEMENT_3D('Hole2_Placement',#20,#21,#22);
+#24 = CYLINDRICAL_SURFACE('Hole2_Surface',#23,8.0);
+#25 = ADVANCED_FACE('Hole2_Face',(#24),.T.);
+
+/* Hole 3: Blind hole with radius 3.0 mm at Z=10 */
+#30 = CARTESIAN_POINT('Hole3_Center',(50.0,10.0,10.0));
+#31 = DIRECTION('Hole3_Axis',(0.0,0.0,1.0));
+#32 = DIRECTION('Hole3_RefDir',(1.0,0.0,0.0));
+#33 = AXIS2_PLACEMENT_3D('Hole3_Placement',#30,#31,#32);
+#34 = CYLINDRICAL_SURFACE('Hole3_Surface',#33,3.0);
+#35 = ADVANCED_FACE('Hole3_Face',(#34),.T.);
+
+ENDSEC;
+END-ISO-10303-21;

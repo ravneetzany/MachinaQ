@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+numpy
+pandas
+scikit-learn
+networkx
+trimesh
+torch
+pydantic

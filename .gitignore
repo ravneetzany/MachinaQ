@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environments
+conda_env/
+venv/
+.venv/
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model weights (large binaries — use Git LFS or exclude)
+models/*.pth
+outputs/*.pth
+aagnet/weights/*.pth
+
+# Dataset (large — exclude raw data)
+aagnet/dataset/MFInstSeg/aag/
+aagnet/dataset/MFInstSeg/steps/
+aagnet/dataset/data2.zip
+nist_sfa/*.zip
+
+# Logs
+*.log
+output/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.code-workspace

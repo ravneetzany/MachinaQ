@@ -1,0 +1,22 @@
+[project]
+name = "aicad-step-analyzer"
+version = "0.1.0"
+description = "STEP file feature analysis pipeline for manufacturing feature recognition."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "networkx",
+    "trimesh",
+    "torch",
+    "pydantic"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"

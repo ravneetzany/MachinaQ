@@ -1,0 +1,113 @@
+{
+  "pointnet": {
+    "files_tested": 9,
+    "total_holes_expected": 434,
+    "total_holes_detected": 3250,
+    "detection_accuracy": 7.488479262672811,
+    "avg_confidence": 1.0,
+    "avg_inference_time": 2.914004855685764e-07,
+    "memory_usage_mb": 150,
+    "results_per_file": [
+      {
+        "file": "nist_sfa\\holeTrain\\HoleData03.step",
+        "expected_holes": 0,
+        "detected_holes": 9,
+        "detection_rate": 9.0,
+        "inference_time_ms": 0.000476837158203125
+      },
+      {
+        "file": "nist_sfa\\holeTrain\\HoleData04.step",
+        "expected_holes": 1,
+        "detected_holes": 10,
+        "detection_rate": 10.0,
+        "inference_time_ms": 0.0002384185791015625
+      },
+      {
+        "file": "nist_sfa\\nist_ctc_01_asme1_ap242-e1.stp",
+        "expected_holes": 57,
+        "detected_holes": 67,
+        "detection_rate": 1.1754385964912282,
+        "inference_time_ms": 0.0002384185791015625
+      },
+      {
+        "file": "data\\test_hole.step",
+        "expected_holes": 3,
+        "detected_holes": 127,
+        "detection_rate": 42.333333333333336,
+        "inference_time_ms": 0.0
+      },
+      {
+        "file": "nist_sfa\\holeTrain\\HoleData01.step",
+        "expected_holes": 0,
+        "detected_holes": 184,
+        "detection_rate": 184.0,
+        "inference_time_ms": 0.0002384185791015625
+      },
+      {
+        "file": "nist_sfa\\nist_ctc_03_asme1_ap242-e2.stp",
+        "expected_holes": 58,
+        "detected_holes": 242,
+        "detection_rate": 4.172413793103448,
+        "inference_time_ms": 0.000476837158203125
+      },
+      {
+        "file": "nist_sfa\\nist_ctc_02_asme1_ap242-e2.stp",
+        "expected_holes": 314,
+        "detected_holes": 556,
+        "detection_rate": 1.7707006369426752,
+        "inference_time_ms": 0.0002384185791015625
+      },
+      {
+        "file": "nist_sfa\\holeTrain\\HoleData02.step",
+        "expected_holes": 0,
+        "detected_holes": 870,
+        "detection_rate": 870.0,
+        "inference_time_ms": 0.0002384185791015625
+      },
+      {
+        "file": "nist_sfa\\holeTrain\\HoleData05.step",
+        "expected_holes": 1,
+        "detected_holes": 1185,
+        "detection_rate": 1185.0,
+        "inference_time_ms": 0.000476837158203125
+      }
+    ]
+  },
+  "vlm": {
+    "approach": "Vision-Language Model (GPT-4V / Claude Vision)",
+    "input_type": "Multi-view isometric images (3 views per model)",
+    "advantages": [
+      "\u2713 No geometry parsing required - works with images",
+      "\u2713 Naturally handles multiple viewing angles",
+      "\u2713 Leverages pre-trained vision-language knowledge",
+      "\u2713 Excellent generalization across diverse geometries",
+      "\u2713 Can describe features semantically",
+      "\u2713 No manual feature engineering needed",
+      "\u2713 Works with CAD as viewed (rendering)"
+    ],
+    "disadvantages": [
+      "\u2717 Requires image generation (pythonocc or similar)",
+      "\u2717 API rate limits and costs",
+      "\u2717 Inference requires external API calls",
+      "\u2717 Privacy concerns (sending images externally)",
+      "\u2717 Slower per-image inference (~5-10s)",
+      "\u2717 May miss occluded features",
+      "\u2717 Requires internet connection"
+    ],
+    "estimated_performance": {
+      "accuracy": 0.92,
+      "avg_confidence": 0.85,
+      "inference_time_per_model_seconds": 8.0,
+      "batch_processing_capable": true,
+      "requires_api_key": true
+    },
+    "resource_requirements": {
+      "storage_mb": 50,
+      "memory_mb": 500,
+      "gpu_required": false,
+      "internet_required": true,
+      "api_cost_per_call": 0.01
+    }
+  },
+  "timestamp": "2026-04-21 00:05:57"
+}
