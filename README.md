@@ -1,6 +1,6 @@
 # MachinaQ
 
-AI-powered manufacturing feature recognition from STEP/CAD files. MachinaQ combines B-Rep graph neural networks (AAGNet) and point cloud classification (PointNet) to detect and classify 25 machining features — holes, pockets, slots, threads, steps, and more — with structured JSON output for CAM and QA integration.
+AI-powered manufacturing feature recognition from STEP/CAD files. MachinaQ combines B-Rep graph neural networks and point cloud classification to detect and classify 25 machining features — holes, pockets, slots, threads, steps, and more — with structured JSON output for CAM and QA integration.
 
 ## Getting Started
 

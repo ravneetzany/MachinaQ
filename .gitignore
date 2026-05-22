@@ -27,10 +27,36 @@ aagnet/dataset/MFInstSeg/aag/
 aagnet/dataset/MFInstSeg/steps/
 aagnet/dataset/data2.zip
 nist_sfa/*.zip
+# MFInstSeg full dataset folder (graph partitions are large)
+dataset/
+
+# machgnn/ is a 28 GB nested repo (AAGNet source + MFInstSeg dataset).
+# Clone it separately: https://github.com/zhangsn-19/AAGNet (or equivalent)
+machgnn/
+
+# NIST STEP files (large CAD files — not source code)
+nist_sfa/*.stp
+nist_sfa/*.step
+nist_sfa/*.FCStd
+nist_sfa/holeTrain/
 
 # Logs
 *.log
-output/
+outputs/
+
+# Temp / debug scripts in outputs/
+outputs/*.py
+outputs/*.txt
+
+# Large installer / bootstrapper binaries
+*.exe
+get-pip.py
+
+# Test / scratch files
+test_imports.py
+
+# Claude IDE state
+.claude/
 
 # OS
 .DS_Store
