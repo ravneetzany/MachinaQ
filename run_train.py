@@ -14,7 +14,7 @@ ap = argparse.ArgumentParser(
 )
 ap.add_argument(
     '--model',
-    choices=['gnn', 'pointnet', 'through-hole', 'unified'],
+    choices=['gnn', 'pointnet', 'through-hole', 'unified', 'operation-classifier'],
     default='gnn',
     help=(
         'Model to train: '
@@ -22,7 +22,10 @@ ap.add_argument(
         'pointnet = PointNet on NIST .stp + nist_sfa/holeTrain .step files; '
         'through-hole = binary PointNet classifier (through vs blind holes); '
         'unified = MachinaQUnified multi-task model (feature type + through/blind) '
-        '          combining all three architectures into one system'
+        '          combining all three architectures into one system; '
+        'operation-classifier = learned CNC-operation classifier, self-distilled '
+        '          from operation_classifier.py\'s rules over NIST STEP + '
+        '          .scad + FreeCAD parts'
     ),
 )
 ap.add_argument('--epochs',     type=int,   default=None, help='Override epoch count')
@@ -42,9 +45,10 @@ os.makedirs(os.path.join(ROOT, 'outputs'), exist_ok=True)
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 LOG_NAME = {
-    'pointnet':    'pointnet_train.log',
-    'through-hole':'through_hole_train.log',
-    'unified':     'unified_train.log',
+    'pointnet':             'pointnet_train.log',
+    'through-hole':         'through_hole_train.log',
+    'unified':              'unified_train.log',
+    'operation-classifier': 'operation_classifier_train.log',
 }.get(args.model, 'machinaq_train.log')
 LOG_PATH = os.path.join(ROOT, 'outputs', LOG_NAME)
 
@@ -234,6 +238,37 @@ if args.model == 'unified':
     log.info('    )')
     log.info('    result = pipeline.predict_file("part.stp")')
     log.info('    print(result.summary())')
+    sys.exit(0)
+
+# ==============================================================================
+#  Operation classifier branch (learned, self-distilled from operation_classifier.py)
+# ==============================================================================
+if args.model == 'operation-classifier':
+    from src.train_operation_classifier import train_operation_classifier
+
+    SAVE_PATH = os.path.join(ROOT, 'outputs', 'machinaq_operation_classifier.pth')
+
+    EPOCHS     = args.epochs     or 30
+    BATCH_SIZE = args.batch_size or 16
+    LR         = args.lr         or 1e-3
+
+    log.info('=' * 70)
+    log.info('MachinaQ Operation Classifier Training')
+    log.info('  Self-distilled from operation_classifier.py\'s rules over')
+    log.info('  NIST STEP files + OpenSCAD parts + FreeCAD parts')
+    log.info(f'  Epochs           : {EPOCHS}')
+    log.info(f'  Batch size       : {BATCH_SIZE}')
+    log.info(f'  Learning rate    : {LR}')
+    log.info(f'  Save path        : {SAVE_PATH}')
+    log.info(f'  Log              : {LOG_PATH}')
+    log.info('=' * 70)
+
+    train_operation_classifier(
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        lr=LR,
+        output_path=SAVE_PATH,
+    )
     sys.exit(0)
 
 # ==============================================================================

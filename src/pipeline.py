@@ -13,8 +13,11 @@ import torch
 from .parser import StepTextParser
 from .primitive import PrimitiveClassifier, SurfacePrimitive
 from .features import Feature, FeatureDetector
-from .operation_classifier import FeatureOperation, PartOperationsSummary, classify_features, summarize_part
+from .operation_classifier import FeatureOperation, Operation, PartOperationsSummary, classify_features, summarize_part
+from .operation_classifier_dataset import vectorize
 from models.pointnet import PointNet, load_model
+from models.operation_classifier_net import OperationClassifierNet
+from models.operation_classifier_net import load_model as load_operation_model
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ class StepAnalyzer:
         self.detector = FeatureDetector()
         self.model = None
         self._load_model()
+        self.operation_model = None
+        self._load_operation_model()
 
     def _load_model(self) -> None:
         """Load trained PointNet model for inference."""
@@ -49,6 +54,24 @@ class StepAnalyzer:
         except Exception as e:
             logger.error("Failed to load model: %s", e)
             self.model = None
+
+    def _load_operation_model(self) -> None:
+        """Load the learned, self-distilled operation classifier, if trained.
+
+        Purely supplementary: absence is not an error — the rule-based
+        `operation`/`operations_summary` fields are always computed regardless.
+        """
+        try:
+            model_path = Path(__file__).parent.parent / "outputs" / "machinaq_operation_classifier.pth"
+            if model_path.exists():
+                self.operation_model = OperationClassifierNet()
+                self.operation_model = load_operation_model(self.operation_model, str(model_path))
+                logger.info("Loaded trained operation-classifier model from %s", model_path)
+            else:
+                logger.info("No trained operation-classifier checkpoint at %s; rule-based operation classification only", model_path)
+        except Exception as e:
+            logger.error("Failed to load operation-classifier model: %s", e)
+            self.operation_model = None
 
     def analyze(self, step_path: str) -> Dict[str, Any]:
         logger.info("Analyzing STEP file: %s", step_path)
@@ -74,7 +97,7 @@ class StepAnalyzer:
         if self.model is not None:
             predictions = self._predict_features(primitives)
 
-        return {
+        report: Dict[str, Any] = {
             "summary": summary,
             "primitives": [self._primitive_to_dict(p) for p in primitives],
             "features": [
@@ -85,6 +108,37 @@ class StepAnalyzer:
             "predictions": predictions,
             "model_available": self.model is not None,
         }
+
+        if self.operation_model is not None:
+            report["operation_predictions"] = self._predict_operations(features, primitives)
+
+        return report
+
+    def _predict_operations(self, features: List[Feature], primitives: List[SurfacePrimitive]) -> List[Dict[str, Any]]:
+        """Optional, supplementary learned prediction alongside the
+        rule-derived `operation`/`operations_summary` fields (which this
+        never alters). Uses the same STEP-path `principal_axis=None`
+        convention the rule-based classifier itself uses (design.md decision 2)."""
+        primitives_by_face = {p.face_id: p for p in primitives}
+        predictions: List[Dict[str, Any]] = []
+        try:
+            for feature in features:
+                prims = [primitives_by_face[fid] for fid in feature.face_ids if fid in primitives_by_face]
+                if not prims:
+                    continue
+                vector = torch.tensor([vectorize(prims[0], principal_axis=None)], dtype=torch.float32)
+                with torch.no_grad():
+                    logits = self.operation_model(vector)[0]
+                    probs = torch.softmax(logits, dim=0)
+                    pred_idx = int(probs.argmax())
+                predictions.append({
+                    "face_ids": feature.face_ids,
+                    "predicted_operation": Operation.ALL[pred_idx],
+                    "confidence": float(probs[pred_idx]),
+                })
+        except Exception as e:
+            logger.error("Error during operation-model prediction: %s", e)
+        return predictions
 
     def _hole_and_thread_features(self) -> List[Feature]:
         """Build `hole`/`thread` Feature objects from the parser's standards-

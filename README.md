@@ -165,7 +165,7 @@ uvicorn src.api:app --reload
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Service health check |
-| `POST` | `/analyze` | Parse STEP file → features + operations + model predictions |
+| `POST` | `/analyze` | Parse STEP file → features + operations + model predictions (report gains `operation_predictions` when `outputs/machinaq_operation_classifier.pth` exists) |
 | `POST` | `/evaluate` | Run AI Jury on a prediction report |
 | `POST` | `/validate` | Compare predictions against an expected report |
 
@@ -226,6 +226,7 @@ python run_train.py --model <model_type> [options]
 | `through-hole` | Binary through/blind classifier | Synthetic cylinder + disk samples |
 | `unified` | Multi-task (feature + through/blind) | Combined above; use `--merge-weights` to init from pre-trained |
 | `gnn` | 25-class AAGNet segmentation | MFInstSeg (~20 GB, 14 shards) |
+| `operation-classifier` | Learned CNC-operation classifier (turning/drilling/face/3-axis/5-axis milling) | Self-distilled from `operation_classifier.py`'s own rules over NIST STEP + `.scad` + FreeCAD parts (see the Batch Operation Classification section above) — the model can only approximate the rules it was trained on, not exceed them |
 
 ### Common options
 
@@ -251,6 +252,9 @@ python run_train.py --model unified --merge-weights
 
 # Train GNN on MFInstSeg (plan for 20–60 min dataset load time)
 python run_train.py --model gnn
+
+# Train the learned operation classifier (self-distilled from operation_classifier.py's rules)
+python run_train.py --model operation-classifier
 ```
 
 Training artifacts are saved to `outputs/`:
