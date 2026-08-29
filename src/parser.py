@@ -39,8 +39,8 @@ class GeometryPrimitives:
     lines: List[Tuple[int, int]]  # point ids
     circles: List[Tuple[int, float]]  # center point id, radius
     planes: List[Tuple[int, Vector3, Vector3]]  # surface id, normal, point
-    cylinders: List[Tuple[int, float, int]]  # axis point id, radius, direction id
-    cones: List[Tuple[int, int, float, float]]  # surface id, placement ref, radius, semi-angle
+    cylinders: List[Tuple[int, float, Vector3, Vector3]]  # surface id, radius, axis point, axis direction
+    cones: List[Tuple[int, float, float, Vector3, Vector3]]  # surface id, radius, semi-angle, axis point, axis direction
 
 
 @dataclass
@@ -207,23 +207,34 @@ class StepTextParser:
                         point if point is not None else (0.0, 0.0, 0.0),
                     ))
             elif entity.type == 'CYLINDRICAL_SURFACE':
-                # Simplified: assume position, axis, radius
+                # CYLINDRICAL_SURFACE('name', #axis2_placement_3d, radius)
                 if len(entity.attributes) >= 3:
                     radius = entity.attributes[2]
                     if isinstance(radius, float):
-                        self.primitives.cylinders.append((entity.id, radius, entity.id))
+                        point, direction = (None, None)
+                        if isinstance(entity.attributes[1], int):
+                            point, direction = self._resolve_placement(entity.attributes[1])
+                        self.primitives.cylinders.append((
+                            entity.id,
+                            radius,
+                            point if point is not None else (0.0, 0.0, 0.0),
+                            direction if direction is not None else (0.0, 0.0, 1.0),
+                        ))
             elif entity.type == 'CONICAL_SURFACE':
                 # CONICAL_SURFACE('name', #axis2_placement_3d, radius, semi_angle)
                 if len(entity.attributes) >= 4:
-                    placement_ref = entity.attributes[1]
                     radius = entity.attributes[2]
                     semi_angle = entity.attributes[3]
                     if isinstance(radius, float) and isinstance(semi_angle, float):
+                        point, direction = (None, None)
+                        if isinstance(entity.attributes[1], int):
+                            point, direction = self._resolve_placement(entity.attributes[1])
                         self.primitives.cones.append((
                             entity.id,
-                            placement_ref if isinstance(placement_ref, int) else -1,
                             radius,
                             semi_angle,
+                            point if point is not None else (0.0, 0.0, 0.0),
+                            direction if direction is not None else (0.0, 0.0, 1.0),
                         ))
 
     @staticmethod

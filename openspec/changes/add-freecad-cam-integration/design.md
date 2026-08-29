@@ -1,0 +1,53 @@
+## Context
+
+See proposal.md - Why, and its "Note on scope decisions" — several architecture choices here are assumptions made because the user declined the clarifying questions asked; each is called out explicitly below as revisable.
+
+Relevant current state:
+- `src/api.py`'s `POST /analyze` takes `{"step_path": str, "output": str|None}` and returns `StepAnalyzer.analyze()`'s full report dict: `summary`, `primitives` (list of `{face_id, type, details}`), `features` (list of `{feature_type, face_ids, parameters, operation, operation_rationale}`), `unclassified_face_ids`, `operations_summary` (`{primary_process, secondary_processes, rationale}`), `predictions`, `model_available`, and (per `train-operation-classifier-model`) optionally `operation_predictions`.
+- `src/parser.py`'s `GeometryPrimitives.planes` already carries `(surface_id, normal, point)` (resolved via `_resolve_placement`), but `.cylinders`/`.cones` carry only `(entity_id, radius, ...)` — no position. `CYLINDRICAL_SURFACE`/`CONICAL_SURFACE` STEP entities have the same `AXIS2_PLACEMENT_3D` structure `_resolve_placement` already parses for planes.
+- FreeCAD's addon/macro extension model: a `Gui.Command` subclass is registered via `Gui.addCommand(name, instance)`; getting a command into an *existing* built-in workbench's toolbar (rather than a new workbench's own toolbar) is done by listening for that workbench's activation and calling `Gui.activeWorkbench().appendToolbar(name, [commands])`, typically wired from an `InitGui.py` that runs at FreeCAD startup. **Verified against this environment's actual installed FreeCAD 1.1.3** (`freecadcmd -v` confirms the version; CAM workbench present at `/usr/lib/freecad/Mod/CAM/`): `CAMWorkbench.Initialize()` in `/usr/lib/freecad/Mod/CAM/InitGui.py` (lines ~70-269) itself calls `self.appendToolbar(...)` several times to build its own toolbars — this confirms `appendToolbar` is a standard `Workbench` instance method any code holding the active workbench reference can call, not an internal-only mechanism, which is exactly what decision 2 below relies on.
+
+## Goals / Non-Goals
+
+**Goals:**
+- A CAM-workbench button that exports the active document/selection, calls the existing `/analyze` API unmodified, and displays the result.
+- Best-effort, clearly-labeled-as-approximate face correlation, including for cylindrical/conical (hole/boss) features, not just planar ones.
+- Clear, non-crashing error handling when the API is unreachable or errors.
+
+**Non-Goals:**
+- No remote/multipart-upload API — same-machine deployment only (proposal.md assumption).
+- No exact face-id correspondence between FreeCAD's `Shape.Faces` indexing and MachinaQ's STEP-parsed `face_id` (which is a *surface* entity id, not a topological `ADVANCED_FACE` id — a pre-existing MachinaQ convention, not something this change can silently fix without touching how every other part of the pipeline keys features).
+- No automatic creation/modification of FreeCAD CAM operation objects from the recommendation — report-only.
+- No FreeCAD Addon Manager packaging/listing — this change produces the addon directory; publishing it to the Addon Manager's index is a separate, later step.
+- No change to `POST /analyze`'s request/response contract.
+
+## Decisions
+
+**1. HTTP client over embedded MachinaQ (proposal.md assumption, restated with rationale).**
+`freecad_addon/MachinaQCAM/http_client.py` is a small, dependency-light module (uses `requests` if available in FreeCAD's Python, else falls back to `urllib.request` from the standard library) that POSTs to a configurable base URL (default `http://127.0.0.1:8000`, overridable via a FreeCAD preference). Rationale: keeps the addon installable without touching FreeCAD's own Python environment at all — the alternative (embedding `torch` etc. into FreeCAD's interpreter) risks breaking FreeCAD's own Python-dependent features if a wheel mismatch occurs, a much higher blast radius than a network client failing to connect.
+
+**2. Addon adds a command to CAM's existing toolbar, not a new workbench (proposal.md assumption, restated).**
+`InitGui.py` registers `MachinaQ_ClassifyFeature` via `Gui.addCommand`, then adds it to the CAM workbench's toolbar.
+
+**Correction from a real install (found after `/opsx:apply` — not caught by this environment's headless verification):** the first implementation monkey-patched `CAMWorkbench.__class__.Initialize` (called exactly once per session, on first activation), assuming this addon's `InitGui.py` always runs *before* CAM's workbench is first activated. That's false whenever CAM is already the active/default workbench at FreeCAD startup — `Initialize()` had already run before the patch could install, so the toolbar was silently never added, with **no error at all** (the patch itself succeeded; it just patched a method that would never run again). The user confirmed exactly this: addon loaded with no warnings in Report View, button never appeared.
+
+Fixed using the mechanism FreeCAD's own bundled `Tux/PersistentToolbarsGui.py` addon uses for the identical problem (found by grepping this environment's actual FreeCAD installation for `workbenchActivated`, not from memory) — `Gui.getMainWindow().workbenchActivated`, a Qt signal that fires on *every* workbench switch, connected via a `QTimer` that polls until `mw.property("eventLoop")` is true and the signal attribute exists (the main window isn't fully constructed yet when `InitGui.py` first runs). The connected callback checks `Gui.activeWorkbench().__class__.__name__ == "CAMWorkbench"` and appends the toolbar once (guarded by a module-level flag) — called once immediately after connecting (to catch CAM already being active) and again on every future switch. This doesn't depend on load-order timing at all, unlike the `Initialize()` patch.
+
+**3. Face correlation is a nearest-position heuristic, computed entirely client-side in the addon (not a new API feature).**
+For each selected FreeCAD `Face`, compute `face.CenterOfMass` (a `Vector`). For each MachinaQ-returned primitive:
+- Planar: distance from `face.CenterOfMass` to the primitive's `point` (from `details`, once exposed — see decision 4).
+- Cylindrical/conical: perpendicular distance from `face.CenterOfMass` to the primitive's axis *line* (point + direction), not to the axis point itself — a face on a cylindrical surface is generally nowhere near the axis point but close to the axis line.
+The primitive with minimum distance (below a generous tolerance; beyond it, reported as "no close match") is the reported correlation, and the panel always states this is an approximate, position-based match — never presented as authoritative. Rationale: building true face-id correspondence would require either re-deriving FreeCAD's STEP export face-numbering convention and matching it exactly against MachinaQ's parser's face-numbering convention (fragile, version-coupled to both FreeCAD's and MachinaQ's STEP handling) or extending MachinaQ's parser to embed some cross-referenceable identifier at export/parse time (a much larger change to the parsing pipeline) — a position heuristic is achievable now and honestly labeled, not a false promise of precision.
+
+**4. `src/parser.py` gains cylinder/cone axis-position extraction, reusing `_resolve_placement`.**
+`CYLINDRICAL_SURFACE`/`CONICAL_SURFACE` STEP entities are `('name', #axis2_placement_3d, radius[, semi_angle])` — the same shape `PLANE` already resolves via `_resolve_placement(attrs[1])`. `GeometryPrimitives.cylinders`/`.cones` gain a resolved `(point, direction)` alongside their existing fields, and `StepAnalyzer._extract_primitives()` stores it in `SurfacePrimitive.details` via the existing `axis_to_details()` helper (already used elsewhere in the pipeline for `.scad`/`.py`-ingested primitives) — no new storage convention invented, reusing what `geometry.py`/`operation_classifier.py` already expect on cylindrical primitives with axis data.
+
+**5. Task-panel UI is a minimal read-only report, not an interactive editor.**
+A `PySide`/`QtWidgets` dialog (FreeCAD bundles PySide) listing: part-level primary/secondary process + rationale, then a table of features (type, operation, rationale), then (if faces were selected) the correlated-feature-per-face section. No editing, no "apply to CAM operation" actions (Non-Goals) — keeps the addon's FreeCAD-GUI surface area small and reviewable.
+
+## Risks / Trade-offs
+
+- **[Risk]** FreeCAD's exact mechanism for injecting a command into an *existing* built-in workbench's toolbar is verified against this environment's FreeCAD 1.1.3 (Context above) but not pinned across other versions — it may need adjustment on older FreeCAD releases (CAM workbench replaced the older Path workbench relatively recently, so its toolbar-extension surface may still be evolving there too). → **Mitigation**: task 1 implements and tests against the FreeCAD 1.1.3 actually installed here; documented as version-specific rather than claimed universal. **Materialized**: the first implementation (`Initialize()` monkey-patch) hit exactly this class of risk in a real install and produced no error, just silent failure — see decision 2's correction. The `workbenchActivated`-signal fix is the same pattern FreeCAD's own bundled `Tux` addon uses, which is at least as old as this FreeCAD 1.1.3 install and thus more likely to remain stable, but this class of risk (headless verification ≠ live GUI behavior) isn't fully closed — real-world testing after each further change to this file is still worth doing when possible.
+- **[Risk]** The nearest-position face-correlation heuristic (decision 3) can mismatch on parts with several similar, closely-spaced features (e.g. a bolt pattern of identical holes) — nearest-distance alone can't disambiguate symmetric duplicates. → **Mitigation**: always labeled approximate in the UI (spec requirement), and reports the distance/confidence alongside the match so a wildly-off match is visible rather than silently trusted.
+- **[Risk]** Same-machine-only deployment (Non-Goals) limits real-world usefulness if FreeCAD and the MachinaQ server aren't co-located — acceptable for this change's scope per the proposal's explicit assumption; a multipart-upload endpoint is a natural, separately-scoped follow-up.
+- **[Trade-off]** Choosing a report-only panel (decision 5) over auto-creating CAM operations means the user still does the CAM setup manually — deliberate, since auto-generating CAM operations correctly (tool selection, feeds/speeds, fixturing) is far outside what MachinaQ's operation-*type* classification alone can responsibly support.

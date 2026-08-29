@@ -12,6 +12,7 @@ import torch
 
 from .parser import StepTextParser
 from .primitive import PrimitiveClassifier, SurfacePrimitive
+from .geometry import Axis, axis_to_details
 from .features import Feature, FeatureDetector
 from .operation_classifier import FeatureOperation, Operation, PartOperationsSummary, classify_features, summarize_part
 from .operation_classifier_dataset import vectorize
@@ -245,7 +246,7 @@ class StepAnalyzer:
         adjacency = self.parser.get_face_adjacency()
         face_surface_types = self.parser.get_face_surface_types()
         face_radius: Dict[int, float] = {}
-        for surf_id, radius, _direction_id in self.parser.primitives.cylinders:
+        for surf_id, radius, _point, _direction in self.parser.primitives.cylinders:
             for fid in self.parser.get_surface_face_ids(surf_id):
                 face_radius[fid] = radius
 
@@ -262,15 +263,17 @@ class StepAnalyzer:
             radii = [face_radius[fid] for fid in adjacent_ids if fid in face_radius]
             return min(radii) if radii else None
 
-        for surf_id, radius, _direction_id in self.parser.primitives.cylinders:
+        for surf_id, radius, point, direction in self.parser.primitives.cylinders:
             adjacent_ids = adjacent_faces(surf_id)
+            details: Dict[str, float] = {
+                'radius': radius,
+                'adjacent_planar_count': float(adjacent_planar_count(adjacent_ids)),
+            }
+            details.update(axis_to_details(Axis(direction=direction, point=point)))
             primitives.append(SurfacePrimitive(
                 face_id=surf_id,
                 type='cylindrical',
-                details={
-                    'radius': radius,
-                    'adjacent_planar_count': float(adjacent_planar_count(adjacent_ids)),
-                },
+                details=details,
                 adjacent_face_ids=adjacent_ids,
             ))
 
@@ -289,9 +292,10 @@ class StepAnalyzer:
                 adjacent_face_ids=adjacent_ids,
             ))
 
-        for surf_id, _placement_ref, radius, semi_angle in self.parser.primitives.cones:
+        for surf_id, radius, semi_angle, point, direction in self.parser.primitives.cones:
             adjacent_ids = adjacent_faces(surf_id)
             details = {'radius': radius, 'semi_angle': semi_angle}
+            details.update(axis_to_details(Axis(direction=direction, point=point)))
             nearest_radius = nearest_adjacent_cylindrical_radius(adjacent_ids)
             if nearest_radius is not None:
                 details['nearest_adjacent_cylindrical_radius'] = nearest_radius

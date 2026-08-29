@@ -1,8 +1,10 @@
 from pathlib import Path
 
+from src.geometry import axis_from_details
 from src.pipeline import StepAnalyzer
 
 HOLE_FIXTURE = "nist_sfa/holeTrain/HoleData04.step"
+CYLINDER_FIXTURE = "nist_sfa/nist_ctc_01_asme1_ap242-e1.stp"
 OPERATION_CHECKPOINT = Path("outputs/machinaq_operation_classifier.pth")
 
 
@@ -43,6 +45,15 @@ def test_hole_features_carry_through_blind_and_standard_fields() -> None:
     assert "is_through" in params
     assert "asme_label" in params
     assert params["rationale"]
+
+
+def test_step_derived_cylindrical_primitives_carry_a_resolved_axis() -> None:
+    analyzer = StepAnalyzer()
+    report = analyzer.analyze(CYLINDER_FIXTURE)
+    cylindrical = [p for p in report["primitives"] if p["type"] == "cylindrical"]
+    assert cylindrical
+    axis = axis_from_details(cylindrical[0]["details"])
+    assert axis is not None
 
 
 def test_report_includes_unclassified_face_ids() -> None:

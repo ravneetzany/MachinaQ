@@ -1,11 +1,12 @@
 from src.parser import StepTextParser
 
 FIXTURE = "nist_sfa/holeTrain/HoleData01.step"
+CYLINDER_FIXTURE = "nist_sfa/nist_ctc_01_asme1_ap242-e1.stp"
 
 
-def _parsed() -> StepTextParser:
+def _parsed(fixture: str = FIXTURE) -> StepTextParser:
     parser = StepTextParser()
-    parser.parse_file(FIXTURE)
+    parser.parse_file(fixture)
     return parser
 
 
@@ -18,6 +19,18 @@ def test_planes_populated_with_normal_and_point() -> None:
     assert len(point) == 3
     # at least one plane should have a non-default (resolved) normal
     assert any(n != (0.0, 0.0, 1.0) for _, n, _ in parser.primitives.planes)
+
+
+def test_cylinders_populated_with_resolved_axis_position() -> None:
+    parser = _parsed(CYLINDER_FIXTURE)
+    assert len(parser.primitives.cylinders) > 0
+    surface_id, radius, point, direction = parser.primitives.cylinders[0]
+    assert isinstance(surface_id, int)
+    assert isinstance(radius, float)
+    assert len(point) == 3
+    assert len(direction) == 3
+    # at least one cylinder should have a non-default (actually resolved) point
+    assert any(pt != (0.0, 0.0, 0.0) for _, _, pt, _ in parser.primitives.cylinders)
 
 
 def test_face_adjacency_matches_topology_maps() -> None:

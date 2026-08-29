@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<package format="1">
+  <name>MachinaQCAM</name>
+  <description>Classify machining features and required CNC operations for the active document via MachinaQ, from inside FreeCAD's CAM workbench.</description>
+  <version>0.1.0</version>
+  <date>2026-08-29</date>
+  <maintainer email="ravneet.zany@gmail.com">MachinaQ</maintainer>
+  <license file="LICENSE">MIT</license>
+  <url type="repository" branch="main">https://github.com/ravneetzany/MachinaQ</url>
+  <content>
+    <workbench>
+      <classname>CAMWorkbench</classname>
+      <name>MachinaQCAM</name>
+      <description>Adds a "Classify Feature" command to the CAM workbench toolbar that submits the active document to a running MachinaQ API server and reports its feature/operation classification.</description>
+    </workbench>
+  </content>
+</package>

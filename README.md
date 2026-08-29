@@ -197,6 +197,10 @@ curl -X POST http://127.0.0.1:8000/analyze \
 }
 ```
 
+### FreeCAD CAM Integration
+
+`freecad_addon/MachinaQCAM/` adds a "Classify Feature (MachinaQ)" button to FreeCAD's **CAM workbench** toolbar — export the active document/selection, call this same `/analyze` endpoint, and see the feature/operation classification (plus a best-effort, position-based correlation to your selected face) in a FreeCAD panel, without leaving FreeCAD. Requires the API server running and reachable from the machine FreeCAD runs on. See `freecad_addon/MachinaQCAM/README.md` for installation.
+
 ### Batch Operation Classification (`.scad` / FreeCAD `.py` parts)
 
 Classify a directory of parametric part-generator scripts without exporting STEP files first — writes one JSON report per part (primitives, per-feature `operation`, and a part-level `operations_summary`):
