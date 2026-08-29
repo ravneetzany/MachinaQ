@@ -329,6 +329,15 @@ class StepAnalyzer:
                 extents = self.parser.get_face_bounding_extents(fid, normal=None)
                 if extents is not None:
                     details['long_extent'], details['short_extent'] = extents
+                centroid = self.parser.get_face_centroid(fid)
+                if centroid is not None:
+                    # Point only, deliberately no axis_dx/dy/dz — a free-form
+                    # face has no single direction. Consumers (e.g. the
+                    # FreeCAD addon's face_correlation.py) already treat a
+                    # primitive with a point but no direction as
+                    # point-distance-only, which is exactly right here.
+                    details['axis_px'], details['axis_py'], details['axis_pz'] = centroid
+                if extents is not None or centroid is not None:
                     break
             primitives.append(SurfacePrimitive(
                 face_id=surf_id,

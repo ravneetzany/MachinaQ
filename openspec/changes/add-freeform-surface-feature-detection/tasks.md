@@ -41,3 +41,9 @@
 ## 6. Docs
 
 - [x] 6.1 Update `README.md`'s feature-type list and `src/features.py`'s file-tree comment (same locations touched by the prior `planar_face` change) to include `elongated_boss`; verify by re-reading the updated sections
+
+## 7. Post-implementation correction (found via live FreeCAD re-test)
+
+- [x] 7.1 Fix `freeform` primitives having no position data at all (`face_correlation.py` skips any primitive missing `axis_px`/`py`/`pz` entirely, so `freeform` primitives were structurally invisible to the correlation search regardless of proximity): add `StepTextParser.get_face_centroid()` and store it as point-only position data (no direction) in `pipeline.py`'s `freeform` branch. See design.md's "Post-implementation correction" section.
+  - Added `test_freeform_primitive_carries_extents_when_resolvable` assertions for the new `axis_px`/`py`/`pz` keys (and absence of `axis_dx`) in `tests/test_pipeline.py`. Full suite: 107/107 passing.
+  - Re-verified against the real fixture: `freeform` primitives now carry real position data, confirmed not None. Noted remaining limitation (vertex-average centroid can still be far from a specific click point on a large patch) in design.md — not further addressed here; flagged as a possible follow-up.

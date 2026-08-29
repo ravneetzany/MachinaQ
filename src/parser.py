@@ -489,6 +489,24 @@ class StepTextParser:
 
         return (max(eu, ev), min(eu, ev))
 
+    def get_face_centroid(self, face_id: int) -> Optional[Vector3]:
+        """Return the average of a face's boundary vertices — an
+        approximate position for surface types (e.g. free-form B-spline)
+        with no analytic placement point of their own. Not a true
+        area-weighted centroid, just a vertex average; sufficient for
+        approximate, position-based correlation (see
+        add-freeform-surface-feature-detection design.md). Returns None if
+        the face has no resolvable vertices."""
+        points = self._face_vertices(face_id)
+        if not points:
+            return None
+        n = len(points)
+        return (
+            sum(p[0] for p in points) / n,
+            sum(p[1] for p in points) / n,
+            sum(p[2] for p in points) / n,
+        )
+
     def _classify_through_hole(
         self,
         surf_id: int,

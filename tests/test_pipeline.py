@@ -171,6 +171,15 @@ def test_freeform_primitive_carries_extents_when_resolvable() -> None:
     assert freeform[0].face_id == 60
     assert abs(freeform[0].details["long_extent"] - 10.0) < 1e-6
     assert abs(freeform[0].details["short_extent"] - 4.0) < 1e-6
+    # Point-only centroid position, deliberately no axis_dx/dy/dz — a
+    # free-form face has no single direction. Needed so the FreeCAD addon's
+    # face_correlation.py can find this primitive at all (it skips any
+    # primitive with no axis_p* keys) — see the correction note in
+    # add-freeform-surface-feature-detection design.md.
+    assert abs(freeform[0].details["axis_px"] - 5.0) < 1e-6
+    assert abs(freeform[0].details["axis_py"] - 2.0) < 1e-6
+    assert abs(freeform[0].details["axis_pz"] - 0.0) < 1e-6
+    assert "axis_dx" not in freeform[0].details
 
 
 def test_freeform_primitive_empty_details_when_unresolvable() -> None:
