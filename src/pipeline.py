@@ -13,6 +13,7 @@ import torch
 from .parser import StepTextParser
 from .primitive import PrimitiveClassifier, SurfacePrimitive
 from .features import Feature, FeatureDetector
+from .operation_classifier import FeatureOperation, PartOperationsSummary, classify_features, summarize_part
 from models.pointnet import PointNet, load_model
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,11 @@ class StepAnalyzer:
         )
         features = parser_features + other_features
 
+        # STEP-derived primitives carry no part-wide principal axis today
+        # (see design.md decision 2) — the classifier degrades gracefully.
+        feature_operations = classify_features(features, primitives, principal_axis=None)
+        operations_summary = summarize_part(feature_operations)
+
         # Add model predictions if available
         predictions = []
         if self.model is not None:
@@ -71,8 +77,11 @@ class StepAnalyzer:
         return {
             "summary": summary,
             "primitives": [self._primitive_to_dict(p) for p in primitives],
-            "features": [self._feature_to_dict(f) for f in features],
+            "features": [
+                self._feature_to_dict(f, op) for f, op in zip(features, feature_operations)
+            ],
             "unclassified_face_ids": unclassified_face_ids,
+            "operations_summary": self._operations_summary_to_dict(operations_summary),
             "predictions": predictions,
             "model_available": self.model is not None,
         }
@@ -248,9 +257,20 @@ class StepAnalyzer:
             "details": primitive.details,
         }
 
-    def _feature_to_dict(self, feature: Feature) -> Dict[str, Any]:
-        return {
+    def _feature_to_dict(self, feature: Feature, operation: Optional[FeatureOperation] = None) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
             "feature_type": feature.feature_type,
             "face_ids": feature.face_ids,
             "parameters": feature.parameters,
+        }
+        if operation is not None:
+            result["operation"] = operation.operation
+            result["operation_rationale"] = operation.rationale
+        return result
+
+    def _operations_summary_to_dict(self, summary: PartOperationsSummary) -> Dict[str, Any]:
+        return {
+            "primary_process": summary.primary_process,
+            "secondary_processes": summary.secondary_processes,
+            "rationale": summary.rationale,
         }

@@ -24,6 +24,8 @@ An optional **AI Jury** stage uses three Claude agents (Engineer, Inspector, Jud
 - **Direct STEP parsing** — no OpenCASCADE or CAD kernel required for basic analysis
 - **Unit auto-detection** — heuristic + keyword detection of inch vs. metric files
 - **Evidence-based rule engine** — each face gets at most one feature label (hole/thread/boss/slot/drill), chosen from dimensions and face-adjacency topology rather than primitive type alone; faces with no qualifying evidence are reported as `unclassified_face_ids` instead of guessed
+- **CNC operation classification** — each feature (and the part as a whole) gets a required-operation label (turning / drilling / face milling / 3-axis milling / 5-axis milling) with a stated rationale, derived from primitive type and axis-coaxiality with the part's principal rotational axis
+- **Parametric-source ingestion** — classify `.scad` / FreeCAD `.py` part-generator scripts directly (static parsing, no CAD kernel), as an alternative to exporting STEP files first
 - **25-class GNN segmentation** — full per-face instance segmentation via AAGNet on MFInstSeg
 - **PointNet classifiers** — 5-class feature detection + binary through/blind-hole discrimination
 - **Unified multi-task model** — joint feature type + hole sub-type prediction
@@ -69,6 +71,13 @@ STEP File
                │  ASME/ISO Match │  ← Nearest standard size + tolerance %
                └────────┬────────┘
                         ▼
+               ┌───────────────────┐
+               │ OperationClassifier│ ← Per-feature CNC operation (turning /
+               │                   │   drilling / face / 3-axis / 5-axis
+               │                   │   milling) + part-level primary/
+               │                   │   secondary process rollup
+               └────────┬──────────┘
+                        ▼
                ┌─────────────────┐
                │   AI Jury       │  ← Engineer → Inspector → Judge (Claude)
                │  (optional)     │
@@ -76,6 +85,8 @@ STEP File
                         ▼
                   JSON Report
 ```
+
+`.scad` / FreeCAD `.py` parametric part scripts (e.g. a fasteners/bearings/gears library) are an alternative input path into the same `SurfacePrimitive` representation, via static source parsing (`src/scad_ingest.py`, `src/py_source_ingest.py` — no OpenSCAD/FreeCAD execution required) instead of `StepTextParser`/`PrimitiveClassifier`. `scripts/classify_directory.py` batch-runs this path over a directory, writing one JSON report per part.
 
 ### Models
 
@@ -152,7 +163,7 @@ uvicorn src.api:app --reload
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Service health check |
-| `POST` | `/analyze` | Parse STEP file → features + model predictions |
+| `POST` | `/analyze` | Parse STEP file → features + operations + model predictions |
 | `POST` | `/evaluate` | Run AI Jury on a prediction report |
 | `POST` | `/validate` | Compare predictions against an expected report |
 
@@ -183,6 +194,17 @@ curl -X POST http://127.0.0.1:8000/analyze \
   ]
 }
 ```
+
+### Batch Operation Classification (`.scad` / FreeCAD `.py` parts)
+
+Classify a directory of parametric part-generator scripts without exporting STEP files first — writes one JSON report per part (primitives, per-feature `operation`, and a part-level `operations_summary`):
+
+```bash
+python scripts/classify_directory.py /path/to/openscad-parts-library
+python scripts/classify_directory.py /path/to/freecad-parts-library --out outputs/freecad_reports
+```
+
+Files using OpenSCAD/Python constructs outside the supported vocabulary (see `src/scad_ingest.py`/`src/py_source_ingest.py` docstrings) are reported as unparsed with a reason, not silently dropped.
 
 ---
 
@@ -266,6 +288,10 @@ MachinaQ/
 │   ├── parser.py               # STEP text parser & unit detection
 │   ├── primitive.py            # B-Rep surface classification
 │   ├── features.py             # Evidence-based boss/slot/drill detection (holes/threads sourced from parser.py)
+│   ├── operation_classifier.py # Feature/part → required CNC operation
+│   ├── geometry.py             # Shared Axis/vector math (coaxiality, projections)
+│   ├── scad_ingest.py          # Static OpenSCAD (.scad) part parser
+│   ├── py_source_ingest.py     # Static FreeCAD wrapper-script (.py) part parser
 │   ├── asme_standards.py       # ASME / ISO lookup tables
 │   ├── hole_visualizer.py      # 3D visualization utilities
 │   ├── evaluate_with_agents.py # AI Jury orchestration
@@ -274,6 +300,8 @@ MachinaQ/
 │   │   ├── inspector_agent.py
 │   │   └── judge_agent.py
 │   └── train*.py               # Individual training scripts
+├── scripts/
+│   └── classify_directory.py   # Batch .scad/.py → operation-classification reports
 ├── models/
 │   ├── pointnet.py             # PointNet architectures
 │   ├── machinaq_unified.py     # Unified multi-task model

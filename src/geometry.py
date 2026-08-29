@@ -130,3 +130,19 @@ def axis_from_details(details: dict) -> Optional[Axis]:
         direction=(details["axis_dx"], details["axis_dy"], details["axis_dz"]),
         point=(details["axis_px"], details["axis_py"], details["axis_pz"]),
     )
+
+
+def reduce_principal_axis(primitives: list) -> Optional[Axis]:
+    """Reduce a part's cylindrical primitives to a single principal
+    rotational axis, when they all share one axis (within tolerance).
+    Shared by the .scad and FreeCAD-source ingesters."""
+    cyl_axes = [
+        axis_from_details(p.details) for p in primitives if p.type == "cylindrical"
+    ]
+    cyl_axes = [a for a in cyl_axes if a is not None]
+    if not cyl_axes:
+        return None
+    reference = cyl_axes[0]
+    if all(is_coaxial(a, reference) for a in cyl_axes[1:]):
+        return reference
+    return None

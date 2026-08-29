@@ -78,25 +78,27 @@ def classify_feature(
 
 
 def _classify_without_axis(feature: Feature, prims: List[SurfacePrimitive], ptypes: set) -> FeatureOperation:
-    """STEP-path fallback: no part-wide axis is available, so classification
-    uses primitive type alone with a rationale noting the coarser confidence."""
-    if "cylindrical" in ptypes:
-        return FeatureOperation(
-            feature, Operation.TURNING,
-            "cylindrical primitive with no part-wide principal axis available (STEP path); "
-            "classified as a turning-candidate from primitive type alone (lower confidence)",
-        )
-    if "conical" in ptypes:
+    """No part-wide principal axis is available — either because the part
+    genuinely has none (a prismatic part, per the spec's "Cylindrical or
+    conical hole not coaxial with the principal axis" and "Planar feature
+    on a prismatic part" scenarios), or because the STEP path doesn't yet
+    compute one at all (design.md decision 2's documented lower-confidence
+    fallback). Both cases use the same primitive-type-only heuristic: a
+    cylindrical/conical face with no axis to be coaxial with cannot be a
+    turning feature, so it reads as drilling; a planar face reads as
+    3-axis milling."""
+    if "cylindrical" in ptypes or "conical" in ptypes:
         return FeatureOperation(
             feature, Operation.DRILLING,
-            "conical primitive with no part-wide principal axis available (STEP path); "
-            "classified as drilling from primitive type alone (lower confidence)",
+            "no part-wide principal rotational axis available, so this "
+            f"{'cylindrical' if 'cylindrical' in ptypes else 'conical'} feature cannot be "
+            "coaxial with one; classified as drilling from primitive type alone",
         )
     if "planar" in ptypes:
         return FeatureOperation(
             feature, Operation.THREE_AXIS_MILLING,
-            "planar primitive with no part-wide principal axis available (STEP path); "
-            "classified as 3-axis milling from primitive type alone (lower confidence)",
+            "planar primitive on a part with no single principal rotational axis; "
+            "classified as 3-axis milling from primitive type alone",
         )
     return FeatureOperation(
         feature, Operation.UNKNOWN,

@@ -83,8 +83,8 @@ def test_step_path_fallback_without_axis_does_not_error() -> None:
     prim = SurfacePrimitive(face_id=6, type="cylindrical", details={"radius": 3.0})
     feature = Feature(feature_type="hole", face_ids=[6], parameters={})
     result = classify_feature(feature, {6: prim}, None)
-    assert result.operation == Operation.TURNING
-    assert "lower confidence" in result.rationale
+    assert result.operation == Operation.DRILLING
+    assert result.rationale
 
 
 def test_summary_single_operation_has_no_secondary() -> None:

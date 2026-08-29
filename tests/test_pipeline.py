@@ -37,6 +37,20 @@ def test_report_includes_unclassified_face_ids() -> None:
     assert "unclassified_face_ids" in report
 
 
+def test_report_includes_per_feature_operation_and_operations_summary() -> None:
+    analyzer = StepAnalyzer()
+    report = analyzer.analyze(HOLE_FIXTURE)
+    assert report["features"]
+    for feature in report["features"]:
+        assert "operation" in feature
+        assert "operation_rationale" in feature
+    assert "operations_summary" in report
+    summary = report["operations_summary"]
+    assert "primary_process" in summary
+    assert "secondary_processes" in summary
+    assert "rationale" in summary
+
+
 def test_no_face_appears_in_more_than_one_feature_type() -> None:
     """Regression: end-to-end analysis on a real NIST file must not double-label a face."""
     analyzer = StepAnalyzer()
