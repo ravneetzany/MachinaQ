@@ -2,7 +2,7 @@
 
 `hole`/`thread` features are sourced elsewhere (`StepAnalyzer._hole_and_thread_features`,
 from the parser's standards-validated hole detection) — this module classifies
-the remaining primitives (boss/slot/drill/planar_face) using more than primitive type
+the remaining primitives (boss/slot/drill/planar_face/elongated_boss) using more than primitive type
 alone, so every face gets at most one feature label.
 """
 
@@ -36,6 +36,15 @@ DRILL_RADIUS_TOLERANCE = 0.2
 #: decision 2 in the add-face-milling-feature-detection change.
 FACE_MIN_LONG_EXTENT = 10.0
 FACE_MIN_SHORT_EXTENT = 10.0
+
+#: Long/short bounding-extent ratio at or above which a toroidal, free-form,
+#: or cylindrical face not otherwise claimed is considered an elongated
+#: protrusion (e.g. a swept/lofted rib or arm) rather than left unclassified.
+#: Same evidence shape as `SLOT_ASPECT_RATIO_THRESHOLD`, without a wall-count
+#: band (which bounds a *cavity's* wall count — meaningless for a curved
+#: protrusion) — see design.md decision 4 in the
+#: add-freeform-surface-feature-detection change.
+ELONGATED_BOSS_ASPECT_RATIO_THRESHOLD = 3.0
 
 
 @dataclass
@@ -166,6 +175,45 @@ class FeatureDetector:
             ))
         return planar_faces
 
+    def detect_elongated_bosses(self, primitives: List[SurfacePrimitive]) -> List[Feature]:
+        """A toroidal, free-form, or cylindrical face not already claimed by
+        any other rule, whose bounding-extent aspect ratio indicates an
+        elongated protrusion (e.g. a swept/lofted rib or arm) — the same
+        aspect-ratio evidence `detect_slots()` uses, without a wall-count
+        band (meaningless for a curved protrusion, unlike a bounded cavity).
+        Named `elongated_boss`, not an operation name, for the same reason
+        `planar_face` is not named `face_milling` (see `detect_planar_faces`).
+        Like `detect_bosses()`, this cannot distinguish a true convex
+        protrusion from a concave feature sharing the same extent signature
+        — an accepted, carried-forward limitation, not solved here. See
+        design.md decision 4 in the add-freeform-surface-feature-detection
+        change."""
+        elongated_bosses: List[Feature] = []
+        for p in primitives:
+            if p.type not in {"toroidal", "freeform", "cylindrical"}:
+                continue
+            long_extent = p.details.get("long_extent")
+            short_extent = p.details.get("short_extent")
+            if not long_extent or not short_extent:
+                continue
+            aspect_ratio = long_extent / short_extent
+            if aspect_ratio < ELONGATED_BOSS_ASPECT_RATIO_THRESHOLD:
+                continue
+            elongated_bosses.append(Feature(
+                feature_type="elongated_boss",
+                face_ids=[p.face_id],
+                parameters={
+                    **p.details,
+                    "aspect_ratio": aspect_ratio,
+                    "rationale": (
+                        f"{p.type} face bounding-extent ratio {aspect_ratio:.1f} at or above the "
+                        f"elongated-protrusion threshold ({ELONGATED_BOSS_ASPECT_RATIO_THRESHOLD}); "
+                        "not claimed by any narrower-evidence rule"
+                    ),
+                },
+            ))
+        return elongated_bosses
+
     def detect_all_features(
         self,
         primitives: List[SurfacePrimitive],
@@ -193,12 +241,20 @@ class FeatureDetector:
         planar_faces = self.detect_planar_faces(remaining)
         planar_face_ids = {f.face_ids[0] for f in planar_faces}
 
-        matched_face_ids = drill_face_ids | boss_face_ids | slot_face_ids | planar_face_ids
+        remaining = [p for p in remaining if p.face_id not in planar_face_ids]
+        elongated_bosses = self.detect_elongated_bosses(remaining)
+        elongated_boss_ids = {f.face_ids[0] for f in elongated_bosses}
+
+        matched_face_ids = (
+            drill_face_ids | boss_face_ids | slot_face_ids | planar_face_ids | elongated_boss_ids
+        )
         unclassified_face_ids = [p.face_id for p in candidates if p.face_id not in matched_face_ids]
 
-        features = drills + bosses + slots + planar_faces
+        features = drills + bosses + slots + planar_faces + elongated_bosses
         logger.debug(
-            "Detected %d features (%d drills, %d bosses, %d slots, %d planar_faces), %d unclassified",
-            len(features), len(drills), len(bosses), len(slots), len(planar_faces), len(unclassified_face_ids),
+            "Detected %d features (%d drills, %d bosses, %d slots, %d planar_faces, "
+            "%d elongated_bosses), %d unclassified",
+            len(features), len(drills), len(bosses), len(slots), len(planar_faces),
+            len(elongated_bosses), len(unclassified_face_ids),
         )
         return features, unclassified_face_ids

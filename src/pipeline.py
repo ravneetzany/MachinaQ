@@ -306,6 +306,37 @@ class StepAnalyzer:
                 adjacent_face_ids=adjacent_ids,
             ))
 
+        for surf_id, major_radius, minor_radius, point, direction in self.parser.primitives.toroids:
+            adjacent_ids = adjacent_faces(surf_id)
+            details = {'major_radius': major_radius, 'minor_radius': minor_radius}
+            details.update(axis_to_details(Axis(direction=direction, point=point)))
+            for fid in self.parser.get_surface_face_ids(surf_id):
+                extents = self.parser.get_face_bounding_extents(fid, normal=None)
+                if extents is not None:
+                    details['long_extent'], details['short_extent'] = extents
+                    break
+            primitives.append(SurfacePrimitive(
+                face_id=surf_id,
+                type='toroidal',
+                details=details,
+                adjacent_face_ids=adjacent_ids,
+            ))
+
+        for surf_id in self.parser.primitives.freeforms:
+            adjacent_ids = adjacent_faces(surf_id)
+            details = {}
+            for fid in self.parser.get_surface_face_ids(surf_id):
+                extents = self.parser.get_face_bounding_extents(fid, normal=None)
+                if extents is not None:
+                    details['long_extent'], details['short_extent'] = extents
+                    break
+            primitives.append(SurfacePrimitive(
+                face_id=surf_id,
+                type='freeform',
+                details=details,
+                adjacent_face_ids=adjacent_ids,
+            ))
+
         return primitives
 
     def _primitive_to_dict(self, primitive: SurfacePrimitive) -> Dict[str, Any]:

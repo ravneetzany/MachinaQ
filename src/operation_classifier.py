@@ -100,6 +100,25 @@ def _classify_without_axis(feature: Feature, prims: List[SurfacePrimitive], ptyp
             "planar primitive on a part with no single principal rotational axis; "
             "classified as 3-axis milling from primitive type alone",
         )
+    if "toroidal" in ptypes:
+        toroidal_axes = _axes_of([p for p in prims if p.type == "toroidal"])
+        if toroidal_axes and all(is_axis_aligned_with_any(a.direction) for a in toroidal_axes):
+            return FeatureOperation(
+                feature, Operation.THREE_AXIS_MILLING,
+                "toroidal face axis is aligned with an orthogonal machine axis; "
+                "reachable via 3-axis milling",
+            )
+        return FeatureOperation(
+            feature, Operation.FIVE_AXIS_MILLING,
+            "toroidal face axis is not aligned with an orthogonal machine axis (or "
+            "unresolvable); requires non-orthogonal tool access",
+        )
+    if "freeform" in ptypes:
+        return FeatureOperation(
+            feature, Operation.FIVE_AXIS_MILLING,
+            "free-form (B-spline) primitive carries no resolvable axis/normal data by "
+            "design; conservatively classified as requiring 5-axis milling",
+        )
     return FeatureOperation(
         feature, Operation.UNKNOWN,
         "primitive type does not map to a known operation heuristic",

@@ -41,6 +41,8 @@ class GeometryPrimitives:
     planes: List[Tuple[int, Vector3, Vector3]]  # surface id, normal, point
     cylinders: List[Tuple[int, float, Vector3, Vector3]]  # surface id, radius, axis point, axis direction
     cones: List[Tuple[int, float, float, Vector3, Vector3]]  # surface id, radius, semi-angle, axis point, axis direction
+    toroids: List[Tuple[int, float, float, Vector3, Vector3]]  # surface id, major radius, minor radius, axis point, axis direction
+    freeforms: List[int]  # surface id only — see add-freeform-surface-feature-detection design.md decision 3
 
 
 @dataclass
@@ -55,7 +57,7 @@ class ManufacturingFeatures:
 class StepTextParser:
     def __init__(self) -> None:
         self.entities: Dict[int, StepEntity] = {}
-        self.primitives = GeometryPrimitives([], [], [], [], [], [])
+        self.primitives = GeometryPrimitives([], [], [], [], [], [], [], [])
         self.features = ManufacturingFeatures([], [], [], [], [])
         self._topology_cache: Optional[tuple] = None
 
@@ -125,7 +127,12 @@ class StepTextParser:
             if not line or not line.startswith('#'):
                 continue
             
-            match = re.match(r'#(\d+)\s*=\s*([A-Z0-9_]+)\s*\((.*)\)', line)
+            # re.DOTALL: an entity's attribute list can span multiple lines
+            # (e.g. B_SPLINE_SURFACE_WITH_KNOTS's control-point/knot-vector
+            # data) even though the whole entity is one `;`-terminated
+            # statement — without DOTALL, `.` doesn't match embedded '\n'
+            # and the entity silently fails to match at all.
+            match = re.match(r'#(\d+)\s*=\s*([A-Z0-9_]+)\s*\((.*)\)', line, flags=re.DOTALL)
             if match:
                 entity_id = int(match.group(1))
                 entity_type = match.group(2)
@@ -236,6 +243,29 @@ class StepTextParser:
                             point if point is not None else (0.0, 0.0, 0.0),
                             direction if direction is not None else (0.0, 0.0, 1.0),
                         ))
+            elif entity.type == 'TOROIDAL_SURFACE':
+                # TOROIDAL_SURFACE('name', #axis2_placement_3d, major_radius, minor_radius)
+                if len(entity.attributes) >= 4:
+                    major_radius = entity.attributes[2]
+                    minor_radius = entity.attributes[3]
+                    if isinstance(major_radius, float) and isinstance(minor_radius, float):
+                        point, direction = (None, None)
+                        if isinstance(entity.attributes[1], int):
+                            point, direction = self._resolve_placement(entity.attributes[1])
+                        self.primitives.toroids.append((
+                            entity.id,
+                            major_radius,
+                            minor_radius,
+                            point if point is not None else (0.0, 0.0, 0.0),
+                            direction if direction is not None else (0.0, 0.0, 1.0),
+                        ))
+            elif entity.type == 'B_SPLINE_SURFACE_WITH_KNOTS':
+                # Deliberately not parsing the nested control-point/knot-vector
+                # attributes — only the surface id is recorded. Geometric
+                # summary (bounding extents) is resolved later, per face, from
+                # topology alone — see add-freeform-surface-feature-detection
+                # design.md decision 3.
+                self.primitives.freeforms.append(entity.id)
 
     @staticmethod
     def _parse_float_tuple(raw: Any) -> Optional[Vector3]:

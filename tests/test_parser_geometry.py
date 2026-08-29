@@ -67,3 +67,56 @@ def test_topology_is_cached_not_rebuilt() -> None:
     first = parser._ensure_topology()
     second = parser._ensure_topology()
     assert first is second
+
+
+def test_multiline_entity_is_parsed_not_dropped() -> None:
+    # A B_SPLINE_SURFACE_WITH_KNOTS-shaped entity whose attribute list spans
+    # multiple lines, like real FreeCAD STEP exports produce. Before the
+    # re.DOTALL fix, `.` in the entity-matching regex didn't match the
+    # embedded newlines and this entity silently failed to parse at all.
+    content = (
+        "#42 = B_SPLINE_SURFACE_WITH_KNOTS('',1,1,(\n"
+        "    (#100,#101),\n"
+        "    (#102,#103)),\n"
+        "  .UNSPECIFIED.,.F.,.F.,.F.);\n"
+        "#43 = PLANE('',#44);\n"
+    )
+    parser = StepTextParser()
+    parser._parse_entities(content)
+    assert 42 in parser.entities
+    assert parser.entities[42].type == "B_SPLINE_SURFACE_WITH_KNOTS"
+    assert 43 in parser.entities
+    assert parser.entities[43].type == "PLANE"
+
+
+def test_toroidal_surface_extracted_with_resolved_axis() -> None:
+    content = (
+        "#10 = CARTESIAN_POINT('',(1.0,2.0,3.0));\n"
+        "#11 = DIRECTION('',(0.0,0.0,1.0));\n"
+        "#12 = DIRECTION('',(1.0,0.0,0.0));\n"
+        "#13 = AXIS2_PLACEMENT_3D('',#10,#11,#12);\n"
+        "#14 = TOROIDAL_SURFACE('',#13,5.849324921932,1.5);\n"
+    )
+    parser = StepTextParser()
+    parser._parse_entities(content)
+    parser._extract_primitives()
+    assert len(parser.primitives.toroids) == 1
+    surface_id, major_radius, minor_radius, point, direction = parser.primitives.toroids[0]
+    assert surface_id == 14
+    assert major_radius == 5.849324921932
+    assert minor_radius == 1.5
+    assert point == (1.0, 2.0, 3.0)
+    assert direction == (0.0, 0.0, 1.0)
+
+
+def test_bspline_surface_recorded_as_freeform_surface_id() -> None:
+    content = (
+        "#42 = B_SPLINE_SURFACE_WITH_KNOTS('',1,1,(\n"
+        "    (#100,#101),\n"
+        "    (#102,#103)),\n"
+        "  .UNSPECIFIED.,.F.,.F.,.F.);\n"
+    )
+    parser = StepTextParser()
+    parser._parse_entities(content)
+    parser._extract_primitives()
+    assert parser.primitives.freeforms == [42]

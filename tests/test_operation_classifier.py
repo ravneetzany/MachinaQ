@@ -120,3 +120,35 @@ def test_summary_excludes_unknown_from_vote() -> None:
     summary = summarize_part(ops)
     assert summary.primary_process == Operation.UNKNOWN
     assert summary.secondary_processes == []
+
+
+def _toroidal_primitive(face_id: int, axis: Axis) -> SurfacePrimitive:
+    from src.geometry import axis_to_details
+
+    details = {"major_radius": 5.0, "minor_radius": 1.0}
+    details.update(axis_to_details(axis))
+    return SurfacePrimitive(face_id=face_id, type="toroidal", details=details)
+
+
+def test_axis_aligned_toroidal_face_is_3_axis_milling() -> None:
+    axis_aligned = Axis(direction=(0.0, 0.0, 1.0), point=(0.0, 0.0, 0.0))
+    prim = _toroidal_primitive(1, axis_aligned)
+    feature = Feature(feature_type="elongated_boss", face_ids=[1], parameters={})
+    result = classify_feature(feature, {1: prim}, None)
+    assert result.operation == Operation.THREE_AXIS_MILLING
+
+
+def test_non_axis_aligned_toroidal_face_is_5_axis_milling() -> None:
+    slanted = Axis(direction=(1.0, 1.0, 1.0), point=(0.0, 0.0, 0.0))
+    prim = _toroidal_primitive(1, slanted)
+    feature = Feature(feature_type="elongated_boss", face_ids=[1], parameters={})
+    result = classify_feature(feature, {1: prim}, None)
+    assert result.operation == Operation.FIVE_AXIS_MILLING
+
+
+def test_freeform_face_is_always_5_axis_milling() -> None:
+    prim = SurfacePrimitive(face_id=1, type="freeform", details={"long_extent": 30.0, "short_extent": 5.0})
+    feature = Feature(feature_type="elongated_boss", face_ids=[1], parameters={})
+    result = classify_feature(feature, {1: prim}, None)
+    assert result.operation == Operation.FIVE_AXIS_MILLING
+    assert "no resolvable axis" in result.rationale

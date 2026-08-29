@@ -160,3 +160,68 @@ def test_planar_face_missing_extent_data_remains_unclassified_not_erroring() -> 
     features, unclassified = FeatureDetector().detect_all_features([prim])
     assert features == []
     assert unclassified == [1]
+
+
+def test_elongated_toroidal_face_is_classified_as_elongated_boss() -> None:
+    prim = SurfacePrimitive(
+        face_id=1, type="toroidal",
+        details={"major_radius": 5.0, "minor_radius": 1.0, "long_extent": 30.0, "short_extent": 5.0},
+    )
+    features, unclassified = FeatureDetector().detect_all_features([prim])
+    assert len(features) == 1
+    assert features[0].feature_type == "elongated_boss"
+    assert features[0].face_ids == [1]
+    assert features[0].parameters.get("rationale")
+    assert unclassified == []
+
+
+def test_elongated_freeform_face_is_classified_as_elongated_boss() -> None:
+    prim = SurfacePrimitive(
+        face_id=1, type="freeform",
+        details={"long_extent": 30.0, "short_extent": 5.0},
+    )
+    features, unclassified = FeatureDetector().detect_all_features([prim])
+    assert len(features) == 1
+    assert features[0].feature_type == "elongated_boss"
+    assert unclassified == []
+
+
+def test_elongated_cylindrical_face_without_boss_evidence_is_classified_as_elongated_boss() -> None:
+    # adjacent_planar_count != 1, so detect_bosses() doesn't claim it — but
+    # elongated_boss can, given extent data.
+    prim = SurfacePrimitive(
+        face_id=1, type="cylindrical",
+        details={"radius": 5.0, "adjacent_planar_count": 3.0, "long_extent": 30.0, "short_extent": 5.0},
+    )
+    features, unclassified = FeatureDetector().detect_all_features([prim])
+    assert len(features) == 1
+    assert features[0].feature_type == "elongated_boss"
+    assert unclassified == []
+
+
+def test_face_already_claimed_as_boss_is_not_double_claimed_as_elongated_boss() -> None:
+    prim = SurfacePrimitive(
+        face_id=1, type="cylindrical",
+        details={"radius": 5.0, "adjacent_planar_count": 1.0, "long_extent": 30.0, "short_extent": 5.0},
+    )
+    features, unclassified = FeatureDetector().detect_all_features([prim])
+    assert len(features) == 1
+    assert features[0].feature_type == "boss"
+    assert unclassified == []
+
+
+def test_toroidal_face_missing_extent_data_remains_unclassified_not_erroring() -> None:
+    prim = SurfacePrimitive(face_id=1, type="toroidal", details={"major_radius": 5.0, "minor_radius": 1.0})
+    features, unclassified = FeatureDetector().detect_all_features([prim])
+    assert features == []
+    assert unclassified == [1]
+
+
+def test_low_aspect_ratio_freeform_face_remains_unclassified() -> None:
+    prim = SurfacePrimitive(
+        face_id=1, type="freeform",
+        details={"long_extent": 12.0, "short_extent": 10.0},  # ratio 1.2, below threshold
+    )
+    features, unclassified = FeatureDetector().detect_all_features([prim])
+    assert features == []
+    assert unclassified == [1]
