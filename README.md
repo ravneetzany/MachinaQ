@@ -23,6 +23,7 @@ An optional **AI Jury** stage uses three Claude agents (Engineer, Inspector, Jud
 
 - **Direct STEP parsing** — no OpenCASCADE or CAD kernel required for basic analysis
 - **Unit auto-detection** — heuristic + keyword detection of inch vs. metric files
+- **Evidence-based rule engine** — each face gets at most one feature label (hole/thread/boss/slot/drill), chosen from dimensions and face-adjacency topology rather than primitive type alone; faces with no qualifying evidence are reported as `unclassified_face_ids` instead of guessed
 - **25-class GNN segmentation** — full per-face instance segmentation via AAGNet on MFInstSeg
 - **PointNet classifiers** — 5-class feature detection + binary through/blind-hole discrimination
 - **Unified multi-task model** — joint feature type + hole sub-type prediction
@@ -50,9 +51,11 @@ STEP File
          │ classified surfaces
          ▼
 ┌──────────────────┐
-│ FeatureDetector  │  ← Rule-based: holes, bosses, slots, threads, drills
+│ FeatureDetector  │  ← Rule-based, evidence-driven, exclusive per face:
+│                  │    holes/threads (parser standards match), bosses,
+│                  │    slots, drills (dimensions + adjacency topology)
 └────────┬─────────┘
-         │ candidate features
+         │ candidate features (+ unclassified_face_ids)
          ├──────────────────────────────────────────┐
          ▼                                          ▼
 ┌──────────────────┐                    ┌───────────────────┐
@@ -262,7 +265,7 @@ MachinaQ/
 │   ├── pipeline.py             # Main orchestration
 │   ├── parser.py               # STEP text parser & unit detection
 │   ├── primitive.py            # B-Rep surface classification
-│   ├── features.py             # Rule-based feature detection
+│   ├── features.py             # Evidence-based boss/slot/drill detection (holes/threads sourced from parser.py)
 │   ├── asme_standards.py       # ASME / ISO lookup tables
 │   ├── hole_visualizer.py      # 3D visualization utilities
 │   ├── evaluate_with_agents.py # AI Jury orchestration

@@ -30,14 +30,17 @@ class StepEntity:
     raw: str
 
 
+Vector3 = Tuple[float, float, float]
+
+
 @dataclass
 class GeometryPrimitives:
-    points: List[Tuple[float, float, float]]
+    points: List[Vector3]
     lines: List[Tuple[int, int]]  # point ids
     circles: List[Tuple[int, float]]  # center point id, radius
-    planes: List[Tuple[int, int, int]]  # three point ids
+    planes: List[Tuple[int, Vector3, Vector3]]  # surface id, normal, point
     cylinders: List[Tuple[int, float, int]]  # axis point id, radius, direction id
-    cones: List[Tuple[int, float, float, int]]  # apex point id, semi-angle, height, direction id
+    cones: List[Tuple[int, int, float, float]]  # surface id, placement ref, radius, semi-angle
 
 
 @dataclass
@@ -54,6 +57,7 @@ class StepTextParser:
         self.entities: Dict[int, StepEntity] = {}
         self.primitives = GeometryPrimitives([], [], [], [], [], [])
         self.features = ManufacturingFeatures([], [], [], [], [])
+        self._topology_cache: Optional[tuple] = None
 
     def parse_file(self, filepath: str) -> None:
         path = Path(filepath)
@@ -121,7 +125,7 @@ class StepTextParser:
             if not line or not line.startswith('#'):
                 continue
             
-            match = re.match(r'#(\d+)\s*=\s*([A-Z_]+)\s*\((.*)\)', line)
+            match = re.match(r'#(\d+)\s*=\s*([A-Z0-9_]+)\s*\((.*)\)', line)
             if match:
                 entity_id = int(match.group(1))
                 entity_type = match.group(2)
@@ -194,14 +198,73 @@ class StepTextParser:
                     if isinstance(radius, float):
                         self.primitives.circles.append((entity.id, radius))
             elif entity.type == 'PLANE':
-                # Simplified
-                pass
+                # PLANE('name', #axis2_placement_3d)
+                if len(entity.attributes) >= 2 and isinstance(entity.attributes[1], int):
+                    point, normal = self._resolve_placement(entity.attributes[1])
+                    self.primitives.planes.append((
+                        entity.id,
+                        normal if normal is not None else (0.0, 0.0, 1.0),
+                        point if point is not None else (0.0, 0.0, 0.0),
+                    ))
             elif entity.type == 'CYLINDRICAL_SURFACE':
                 # Simplified: assume position, axis, radius
                 if len(entity.attributes) >= 3:
                     radius = entity.attributes[2]
                     if isinstance(radius, float):
                         self.primitives.cylinders.append((entity.id, radius, entity.id))
+            elif entity.type == 'CONICAL_SURFACE':
+                # CONICAL_SURFACE('name', #axis2_placement_3d, radius, semi_angle)
+                if len(entity.attributes) >= 4:
+                    placement_ref = entity.attributes[1]
+                    radius = entity.attributes[2]
+                    semi_angle = entity.attributes[3]
+                    if isinstance(radius, float) and isinstance(semi_angle, float):
+                        self.primitives.cones.append((
+                            entity.id,
+                            placement_ref if isinstance(placement_ref, int) else -1,
+                            radius,
+                            semi_angle,
+                        ))
+
+    @staticmethod
+    def _parse_float_tuple(raw: Any) -> Optional[Vector3]:
+        if not isinstance(raw, str):
+            return None
+        raw = raw.strip()
+        if raw.startswith('(') and raw.endswith(')'):
+            raw = raw[1:-1]
+        try:
+            values = tuple(float(v) for v in raw.split(','))
+        except ValueError:
+            return None
+        if len(values) != 3:
+            return None
+        return values  # type: ignore[return-value]
+
+    def _resolve_point(self, ref: int) -> Optional[Vector3]:
+        entity = self.entities.get(ref)
+        if entity is None or entity.type != 'CARTESIAN_POINT':
+            return None
+        raw = entity.attributes[1] if len(entity.attributes) > 1 else None
+        return self._parse_float_tuple(raw)
+
+    def _resolve_direction(self, ref: int) -> Optional[Vector3]:
+        entity = self.entities.get(ref)
+        if entity is None or entity.type != 'DIRECTION':
+            return None
+        raw = entity.attributes[1] if len(entity.attributes) > 1 else None
+        return self._parse_float_tuple(raw)
+
+    def _resolve_placement(self, ref: int) -> Tuple[Optional[Vector3], Optional[Vector3]]:
+        """Resolve an AXIS2_PLACEMENT_3D('name', #point, #axis_dir, #ref_dir)
+        into (point, normal/axis direction)."""
+        entity = self.entities.get(ref)
+        if entity is None or entity.type != 'AXIS2_PLACEMENT_3D':
+            return None, None
+        attrs = entity.attributes
+        point = self._resolve_point(attrs[1]) if len(attrs) > 1 and isinstance(attrs[1], int) else None
+        normal = self._resolve_direction(attrs[2]) if len(attrs) > 2 and isinstance(attrs[2], int) else None
+        return point, normal
 
     def _build_topology(self) -> tuple:
         """Build face→edges and edge→faces maps for through-hole detection.
@@ -301,6 +364,90 @@ class StepTextParser:
 
         return face_edges, edge_to_faces, face_surface, surf_to_faces
 
+    def _ensure_topology(self) -> tuple:
+        """Return the (face_edges, edge_to_faces, face_surface, surf_to_faces)
+        tuple from `_build_topology()`, computed once and cached."""
+        if self._topology_cache is None:
+            self._topology_cache = self._build_topology()
+        return self._topology_cache
+
+    def get_face_adjacency(self) -> Dict[int, set]:
+        """Return {face_id -> set of face_ids sharing at least one edge with it}."""
+        face_edges, edge_to_faces, _, _ = self._ensure_topology()
+        adjacency: Dict[int, set] = {}
+        for fid, edges in face_edges.items():
+            neighbors: set = set()
+            for ec in edges:
+                neighbors |= edge_to_faces.get(ec, set())
+            neighbors.discard(fid)
+            adjacency[fid] = neighbors
+        return adjacency
+
+    def get_surface_face_ids(self, surface_id: int) -> List[int]:
+        """Return the ADVANCED_FACE ids that reference a given surface entity."""
+        _, _, _, surf_to_faces = self._ensure_topology()
+        return surf_to_faces.get(surface_id, [])
+
+    def get_face_surface_types(self) -> Dict[int, str]:
+        """Return {face_id -> surface STEP entity type}, e.g. 'PLANE',
+        'CYLINDRICAL_SURFACE', 'CONICAL_SURFACE'."""
+        _, _, face_surface, _ = self._ensure_topology()
+        return dict(face_surface)
+
+    def _face_vertices(self, face_id: int) -> List[Vector3]:
+        face_edges, _, _, _ = self._ensure_topology()
+        points: List[Vector3] = []
+        for ec_id in face_edges.get(face_id, set()):
+            ec = self.entities.get(ec_id)
+            if ec is None or ec.type != 'EDGE_CURVE':
+                continue
+            for vref in (
+                ec.attributes[1] if len(ec.attributes) > 1 else None,
+                ec.attributes[2] if len(ec.attributes) > 2 else None,
+            ):
+                if not isinstance(vref, int):
+                    continue
+                vertex = self.entities.get(vref)
+                if vertex is None or vertex.type != 'VERTEX_POINT':
+                    continue
+                pref = vertex.attributes[1] if len(vertex.attributes) > 1 else None
+                if isinstance(pref, int):
+                    point = self._resolve_point(pref)
+                    if point is not None:
+                        points.append(point)
+        return points
+
+    def get_face_bounding_extents(
+        self, face_id: int, normal: Optional[Vector3] = None
+    ) -> Optional[Tuple[float, float]]:
+        """Return (long_extent, short_extent) of a face's boundary vertices.
+
+        When `normal` is given, vertices are projected into the 2D plane
+        orthogonal to it (correct for a planar face regardless of
+        orientation). Without a normal, falls back to the two largest axes
+        of the raw 3D axis-aligned bounding box. Returns None if the face
+        has no resolvable vertices.
+        """
+        from .geometry import bounding_extents_2d, orthonormal_basis
+
+        points = self._face_vertices(face_id)
+        if not points:
+            return None
+
+        if normal is not None:
+            u, v = orthonormal_basis(normal)
+            eu, ev = bounding_extents_2d(points, points[0], u, v)
+        else:
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            zs = [p[2] for p in points]
+            extents = sorted(
+                [max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs)], reverse=True
+            )
+            eu, ev = extents[0], extents[1]
+
+        return (max(eu, ev), min(eu, ev))
+
     def _classify_through_hole(
         self,
         surf_id: int,
@@ -360,7 +507,7 @@ class StepTextParser:
         unit_label  = 'mm' if use_metric else 'in'
 
         # Build topology graph for through-hole detection
-        face_edges, edge_to_faces, face_surface, surf_to_faces = self._build_topology()
+        face_edges, edge_to_faces, face_surface, surf_to_faces = self._ensure_topology()
 
         skipped_small    = 0
         skipped_nonstand = 0

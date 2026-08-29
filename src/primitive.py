@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 try:
     import os
@@ -37,6 +37,7 @@ class SurfacePrimitive:
     face_id: int
     type: str
     details: Dict[str, float]
+    adjacent_face_ids: List[int] = field(default_factory=list)
 
 
 class PrimitiveClassifier:

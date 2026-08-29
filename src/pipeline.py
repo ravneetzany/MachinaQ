@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -54,7 +54,14 @@ class StepAnalyzer:
         self.parser.parse_file(step_path)
         summary = self.parser.get_summary()
         primitives = self._extract_primitives()
-        features = self.detector.detect_all_features(primitives)
+
+        parser_features = self._hole_and_thread_features()
+        claimed_face_ids = {fid for f in parser_features for fid in f.face_ids}
+        other_features, unclassified_face_ids = self.detector.detect_all_features(
+            primitives,
+            claimed_face_ids=claimed_face_ids,
+        )
+        features = parser_features + other_features
 
         # Add model predictions if available
         predictions = []
@@ -65,9 +72,42 @@ class StepAnalyzer:
             "summary": summary,
             "primitives": [self._primitive_to_dict(p) for p in primitives],
             "features": [self._feature_to_dict(f) for f in features],
+            "unclassified_face_ids": unclassified_face_ids,
             "predictions": predictions,
             "model_available": self.model is not None,
         }
+
+    def _hole_and_thread_features(self) -> List[Feature]:
+        """Build `hole`/`thread` Feature objects from the parser's standards-
+        validated, topology-classified hole detection (through/blind, ASME/ISO
+        size matching) — the authoritative source, not re-derived. A hole whose
+        matched standard category is `tap_drill` is emitted as `thread` instead
+        of `hole` (a tap-drill-sized hole is the pre-thread state), keeping the
+        one-face-one-label guarantee.
+        """
+        features: List[Feature] = []
+        for hole in self.parser.features.holes:
+            is_thread = hole.get("asme_category") == "tap_drill"
+            state = "through" if hole.get("is_through") else "blind"
+            if is_thread:
+                rationale = (
+                    f"cylindrical face matched {hole['asme_standard']} tap-drill "
+                    f"designation '{hole['asme_bolt_size']}' ({hole['asme_label']}, "
+                    f"{hole['snap_error_pct']:.1f}% size error)"
+                )
+            else:
+                rationale = (
+                    f"cylindrical face matched {hole['asme_standard']} standard "
+                    f"'{hole['asme_label']}' ({state} hole, {hole['snap_error_pct']:.1f}% size error)"
+                )
+            params = dict(hole)
+            params["rationale"] = rationale
+            features.append(Feature(
+                feature_type="thread" if is_thread else "hole",
+                face_ids=[hole["id"]],
+                parameters=params,
+            ))
+        return features
 
     def _predict_features(self, primitives: List[SurfacePrimitive]) -> List[Dict[str, Any]]:
         """Predict feature types using trained PointNet model."""
@@ -138,14 +178,67 @@ class StepAnalyzer:
         logger.info("Saved report to %s", output_path)
 
     def _extract_primitives(self) -> List[SurfacePrimitive]:
-        primitives = []
-        for i, cyl in enumerate(self.parser.primitives.cylinders):
+        primitives: List[SurfacePrimitive] = []
+        adjacency = self.parser.get_face_adjacency()
+        face_surface_types = self.parser.get_face_surface_types()
+        face_radius: Dict[int, float] = {}
+        for surf_id, radius, _direction_id in self.parser.primitives.cylinders:
+            for fid in self.parser.get_surface_face_ids(surf_id):
+                face_radius[fid] = radius
+
+        def adjacent_faces(surf_id: int) -> List[int]:
+            result: set = set()
+            for fid in self.parser.get_surface_face_ids(surf_id):
+                result |= adjacency.get(fid, set())
+            return sorted(result)
+
+        def adjacent_planar_count(adjacent_ids: List[int]) -> int:
+            return sum(1 for fid in adjacent_ids if face_surface_types.get(fid) == 'PLANE')
+
+        def nearest_adjacent_cylindrical_radius(adjacent_ids: List[int]) -> Optional[float]:
+            radii = [face_radius[fid] for fid in adjacent_ids if fid in face_radius]
+            return min(radii) if radii else None
+
+        for surf_id, radius, _direction_id in self.parser.primitives.cylinders:
+            adjacent_ids = adjacent_faces(surf_id)
             primitives.append(SurfacePrimitive(
-                face_id=cyl[0],
+                face_id=surf_id,
                 type='cylindrical',
-                details={'radius': cyl[1]}
+                details={
+                    'radius': radius,
+                    'adjacent_planar_count': float(adjacent_planar_count(adjacent_ids)),
+                },
+                adjacent_face_ids=adjacent_ids,
             ))
-        # Add more for other primitives
+
+        for surf_id, normal, _point in self.parser.primitives.planes:
+            adjacent_ids = adjacent_faces(surf_id)
+            details: Dict[str, float] = {}
+            for fid in self.parser.get_surface_face_ids(surf_id):
+                extents = self.parser.get_face_bounding_extents(fid, normal)
+                if extents is not None:
+                    details['long_extent'], details['short_extent'] = extents
+                    break
+            primitives.append(SurfacePrimitive(
+                face_id=surf_id,
+                type='planar',
+                details=details,
+                adjacent_face_ids=adjacent_ids,
+            ))
+
+        for surf_id, _placement_ref, radius, semi_angle in self.parser.primitives.cones:
+            adjacent_ids = adjacent_faces(surf_id)
+            details = {'radius': radius, 'semi_angle': semi_angle}
+            nearest_radius = nearest_adjacent_cylindrical_radius(adjacent_ids)
+            if nearest_radius is not None:
+                details['nearest_adjacent_cylindrical_radius'] = nearest_radius
+            primitives.append(SurfacePrimitive(
+                face_id=surf_id,
+                type='conical',
+                details=details,
+                adjacent_face_ids=adjacent_ids,
+            ))
+
         return primitives
 
     def _primitive_to_dict(self, primitive: SurfacePrimitive) -> Dict[str, Any]:
