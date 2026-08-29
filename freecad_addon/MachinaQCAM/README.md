@@ -27,14 +27,46 @@ is written; this addon does not support a fully remote deployment.
 
 ## Installation
 
-Copy or symlink this directory into FreeCAD's `Mod/` directory, e.g.:
+Copy or symlink this directory into FreeCAD's **per-user, version-specific**
+`Mod/` directory — note this is `.local/share/FreeCAD/v1-1/Mod/` for
+FreeCAD 1.1, **not** the top-level `.local/share/FreeCAD/Mod/` you might
+expect (confirmed via `FreeCAD.ConfigGet('UserAppData')` inside FreeCAD's
+own Python console; the top-level `Mod/` directory exists but FreeCAD does
+not load addons from it). If you're unsure which path your FreeCAD build
+actually uses, run this in FreeCAD's Python console (View > Panels > Python
+console) and use whatever it prints, rather than assuming:
+
+```python
+import FreeCAD
+print(FreeCAD.ConfigGet('UserAppData'))
+```
+
+Then, for FreeCAD 1.1:
 
 ```bash
-ln -s /home/ravneetzany/MachinaQ/freecad_addon/MachinaQCAM ~/.local/share/FreeCAD/Mod/MachinaQCAM
+ln -s /home/ravneetzany/MachinaQ/freecad_addon/MachinaQCAM ~/.local/share/FreeCAD/v1-1/Mod/MachinaQCAM
 ```
 
 Restart FreeCAD, switch to the **CAM** workbench, and the "Classify Feature
 (MachinaQ)" button appears in a new "MachinaQ" toolbar group.
+
+If it still doesn't appear, check FreeCAD's Python console for whether the
+addon loaded at all:
+
+```python
+exec("""
+try:
+    import commands
+    print('addon loaded, commands.py at:', commands.__file__)
+except Exception as e:
+    print('addon NOT loaded:', repr(e))
+print('command registered:', 'MachinaQ_ClassifyFeature' in Gui.listCommands())
+""")
+```
+
+If `commands` fails to import, FreeCAD isn't finding this addon at all —
+double-check the symlink target and the `UserAppData` path above before
+suspecting a code issue.
 
 ## Usage
 
