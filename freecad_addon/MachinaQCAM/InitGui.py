@@ -41,7 +41,6 @@ _CAM_WORKBENCH_CLASS_NAME = "CAMWorkbench"
 
 _toolbar_added = False
 _timer = QtCore.QTimer()
-_mw = Gui.getMainWindow()
 
 
 def _add_toolbar_if_cam_active() -> None:
@@ -66,19 +65,40 @@ def _on_workbench_activated(_name=None) -> None:
 
 
 def _start_when_ready() -> None:
-    """Poll (like Tux/PersistentToolbarsGui.py does) until the main window's
-    event loop and `workbenchActivated` signal actually exist, then connect
-    and check the currently-active workbench immediately."""
-    if not _mw.property("eventLoop"):
+    """Poll (like Tux/PersistentToolbarsGui.py does) until the main window
+    actually exists and its event loop / `workbenchActivated` signal are
+    ready, then connect and check the currently-active workbench immediately.
+
+    **Bug fixed here:** an earlier version fetched `Gui.getMainWindow()`
+    once at module-import time and cached it in a module-level variable.
+    `InitGui.py` runs very early in FreeCAD's startup sequence — early
+    enough that `Gui.getMainWindow()` can return `None` at that point (the
+    main window doesn't exist yet), and since the `None` was cached forever
+    and never re-fetched, every later timer tick crashed on
+    `None.property(...)` inside a Qt slot callback — which PySide swallows
+    silently (no console output, no Report View entry), matching exactly
+    the observed symptom: no error anywhere, yet the command never
+    registered and the toolbar never appeared. Fetching `Gui.getMainWindow()`
+    fresh on every poll fixes this — it may be `None` on early ticks but
+    becomes valid once the real window exists, at which point this
+    succeeds normally.
+    """
+    try:
+        mw = Gui.getMainWindow()
+    except Exception:
+        return  # too early in startup; retry on the next tick
+    if mw is None:
+        return
+    if not mw.property("eventLoop"):
         return
     try:
-        _mw.workbenchActivated
+        mw.workbenchActivated
     except AttributeError:
         return
 
     _timer.stop()
     _on_workbench_activated()  # catch the case where CAM is already active
-    _mw.workbenchActivated.connect(_on_workbench_activated)
+    mw.workbenchActivated.connect(_on_workbench_activated)
 
 
 commands.register()
