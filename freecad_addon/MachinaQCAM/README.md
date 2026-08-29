@@ -1,11 +1,19 @@
 # MachinaQCAM
 
-A FreeCAD addon that adds a "Classify Feature (MachinaQ)" command to the
-**CAM workbench**'s toolbar. Activating it exports the active document (or
+A FreeCAD addon that adds its own **"MachinaQ" workbench** with a "Classify
+Feature (MachinaQ)" command. Activating it exports the active document (or
 your selected Body) to a temporary STEP file, submits it to a running
 MachinaQ API server, and shows the resulting per-feature machining-operation
 classification (turning / drilling / face milling / 3-axis / 5-axis milling)
 in a read-only panel.
+
+**Note:** this was originally designed to inject the command directly into
+FreeCAD's built-in CAM workbench toolbar. After four fix attempts across
+three different mechanisms each proved intermittently unreliable in real
+device testing (see `../../openspec/changes/add-freecad-cam-integration/design.md`
+decision 2's full history), it was changed to a standalone workbench —
+the same, proven registration mechanism CAM itself uses. You'll find it in
+the workbench dropdown as "MachinaQ", not inside CAM's own toolbar.
 
 ## Prerequisites
 
@@ -47,11 +55,12 @@ Then, for FreeCAD 1.1:
 ln -s /home/ravneetzany/MachinaQ/freecad_addon/MachinaQCAM ~/.local/share/FreeCAD/v1-1/Mod/MachinaQCAM
 ```
 
-Restart FreeCAD, switch to the **CAM** workbench, and the "Classify Feature
-(MachinaQ)" button appears in a new "MachinaQ" toolbar group.
+Restart FreeCAD, open the **workbench dropdown** (top toolbar, where you'd
+pick CAM/PartDesign/Part/etc.), and select **"MachinaQ"**. Its toolbar and
+menu both have the "Classify Feature (MachinaQ)" command.
 
-If it still doesn't appear, check FreeCAD's Python console for whether the
-addon loaded at all:
+If it doesn't appear in the dropdown at all, check FreeCAD's Python console
+for whether the addon loaded:
 
 ```python
 exec("""
@@ -60,6 +69,7 @@ try:
     print('addon loaded, commands.py at:', commands.__file__)
 except Exception as e:
     print('addon NOT loaded:', repr(e))
+print('workbench registered:', 'MachinaQWorkbench' in Gui.listWorkbenches() if hasattr(Gui, 'listWorkbenches') else 'n/a (Gui.listWorkbenches not available in this build)')
 print('command registered:', 'MachinaQ_ClassifyFeature' in Gui.listCommands())
 """)
 ```

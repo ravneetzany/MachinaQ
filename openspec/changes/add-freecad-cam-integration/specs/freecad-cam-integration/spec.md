@@ -4,12 +4,12 @@ Let a CAM programmer working inside FreeCAD's CAM workbench trigger MachinaQ's f
 
 ## ADDED Requirements
 
-### Requirement: Command registered into the CAM workbench
-The addon SHALL register a command into FreeCAD's CAM workbench's toolbar/command list when FreeCAD starts, so it is available whenever the CAM workbench is active, without the user having to build a custom toolbar themselves.
+### Requirement: Command registered in a standalone MachinaQ workbench
+**Revised during `/opsx:apply` real-device testing** (see design.md decision 2's documented history — four attempts across three mechanisms to inject the command into CAM's own toolbar were each individually fixed but remained intermittently unreliable in real testing): the addon SHALL register the classify command as part of its own standalone FreeCAD workbench, available whenever the user switches to it from the workbench dropdown, without requiring the user to build a custom toolbar themselves.
 
-#### Scenario: Command appears in the CAM workbench
-- **WHEN** FreeCAD starts with the addon installed and the user switches to the CAM workbench
-- **THEN** a "MachinaQ: Classify Feature" command is present in the CAM workbench's toolbar/command list
+#### Scenario: Command appears in the MachinaQ workbench
+- **WHEN** FreeCAD starts with the addon installed and the user switches to the "MachinaQ" workbench
+- **THEN** a "Classify Feature (MachinaQ)" command is present in that workbench's toolbar and menu
 
 ### Requirement: Export and classify the active document
 Activating the command SHALL export the relevant geometry (the selected Body if one is selected, otherwise the whole active document) to a temporary STEP file and request classification from MachinaQ's `POST /analyze` endpoint at a configurable API URL.
