@@ -109,6 +109,19 @@ def test_toroidal_surface_extracted_with_resolved_axis() -> None:
     assert direction == (0.0, 0.0, 1.0)
 
 
+def test_face_boundary_points_deduplicated() -> None:
+    parser = _parsed()
+    surface_id, normal, _ = parser.primitives.planes[0]
+    face_ids = parser.get_surface_face_ids(surface_id)
+    assert face_ids
+
+    points = parser.get_face_boundary_points(face_ids[0])
+    assert points
+    assert len(points) == len(set(points))  # deduplicated
+    # A rectangular face's 4 distinct corners, not one entry per edge-endpoint pair
+    assert len(points) == 4
+
+
 def test_bspline_surface_recorded_as_freeform_surface_id() -> None:
     content = (
         "#42 = B_SPLINE_SURFACE_WITH_KNOTS('',1,1,(\n"

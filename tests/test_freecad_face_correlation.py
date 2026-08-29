@@ -160,3 +160,35 @@ def test_correlate_faces_falls_back_to_position_when_no_surface_axis() -> None:
     face = _FakeFace(_FakeAxis(1.0, 0.0, 0.0), None)
     results = correlate_faces([face], primitives)
     assert results[0]["match"]["face_id"] == 1
+
+
+def test_nearest_primitive_uses_nearest_boundary_point_not_just_centroid() -> None:
+    # A freeform primitive whose vertex-average centroid is far from the
+    # selected face, but one of its boundary_points is close — the large
+    # curved-patch case that surfaced this (see face_correlation.py's
+    # module docstring, second improvement).
+    primitives = [
+        {
+            "face_id": 1, "type": "freeform",
+            "details": {
+                "axis_px": 100.0, "axis_py": 100.0, "axis_pz": 0.0,  # far centroid
+                "boundary_points": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+            },
+        },
+        {
+            "face_id": 2, "type": "planar",
+            "details": {"axis_px": 50.0, "axis_py": 50.0, "axis_pz": 0.0},
+        },
+    ]
+    match = nearest_primitive((0.5, 0.5, 0.0), primitives)
+    assert match["face_id"] == 1
+    assert match["distance"] < 1.0  # nearest boundary point, not the far centroid (~141mm away)
+
+
+def test_nearest_primitive_without_boundary_points_is_unaffected() -> None:
+    primitives = [
+        {"face_id": 1, "type": "planar", "details": {"axis_px": 0.0, "axis_py": 0.0, "axis_pz": 0.0}},
+    ]
+    match = nearest_primitive((1.0, 0.0, 0.0), primitives)
+    assert match["face_id"] == 1
+    assert match["distance"] == 1.0

@@ -507,6 +507,21 @@ class StepTextParser:
             sum(p[2] for p in points) / n,
         )
 
+    def get_face_boundary_points(self, face_id: int) -> List[Vector3]:
+        """Return the face's distinct boundary vertices (deduplicated,
+        order preserved) — multiple position candidates for approximate
+        correlation of surface types (e.g. free-form B-spline) with no
+        analytic placement point of their own. A single centroid
+        (`get_face_centroid()`) can sit far from any specific point a user
+        actually selects on a spatially large face; checking distance to
+        the nearest of several boundary points instead is a materially
+        better approximation without attempting true NURBS surface
+        evaluation. See add-freeform-surface-feature-detection design.md's
+        post-implementation correction. Returns an empty list if the face
+        has no resolvable vertices."""
+        points = self._face_vertices(face_id)
+        return list(dict.fromkeys(points))  # dedupe, same points resolve bit-identical
+
     def _classify_through_hole(
         self,
         surf_id: int,

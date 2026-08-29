@@ -22,6 +22,15 @@ orientation isn't available (e.g. curved/exotic surface types this module
 doesn't know how to extract an axis from) — so this is a strict
 enhancement over the original behavior, not a replacement requirement.
 
+**Second improvement**: `freeform` (B-spline) primitives from the
+add-freeform-surface-feature-detection change have no analytic placement
+point at all — their position is a single vertex-average centroid, which
+can sit far from whichever specific point on a spatially large patch was
+actually selected. `nearest_primitive()` now also checks a primitive's
+optional `details["boundary_points"]` (multiple candidate points) and
+uses whichever is closest, not the centroid alone — see that distance
+computation's own comment below.
+
 The scoring math (`point_distance`, `point_line_distance`,
 `direction_similarity`, `nearest_primitive`) is pure Python with no
 FreeCAD dependency, so it's directly unit-testable; only `correlate_faces`
@@ -98,6 +107,16 @@ def nearest_primitive(
     different positions/orientations far better than distance alone (see
     module docstring). Without it, matching is position-only, as before.
 
+    When a primitive's `details` also carries `boundary_points` (a list of
+    [x, y, z] triples — currently only `freeform` primitives, whose single
+    stored position is a crude vertex-average centroid with no analytic
+    placement behind it), distance is the minimum over both that centroid
+    and every boundary point, not the centroid alone — a materially better
+    approximation of "how close is this primitive to the selected face" for
+    a spatially large, curved patch, without attempting true NURBS surface
+    evaluation. See add-freeform-surface-feature-detection design.md's
+    post-implementation correction.
+
     Returns a copy of the matched primitive dict with `distance` and (when
     `face_direction` was usable) `direction_similarity` keys added, or None
     if no primitive in the list carries resolvable position data."""
@@ -117,6 +136,13 @@ def nearest_primitive(
             distance = point_distance(face_center, point)
         else:
             distance = point_line_distance(face_center, point, direction)
+
+        boundary_points = details.get("boundary_points")
+        if boundary_points:
+            distance = min(
+                distance,
+                min(point_distance(face_center, tuple(pt)) for pt in boundary_points),
+            )
 
         similarity = None
         score = distance

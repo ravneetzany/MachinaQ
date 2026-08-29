@@ -180,6 +180,14 @@ def test_freeform_primitive_carries_extents_when_resolvable() -> None:
     assert abs(freeform[0].details["axis_py"] - 2.0) < 1e-6
     assert abs(freeform[0].details["axis_pz"] - 0.0) < 1e-6
     assert "axis_dx" not in freeform[0].details
+    # Multiple candidate points, not just the centroid — see
+    # add-freeform-surface-feature-detection design.md's second
+    # post-implementation correction.
+    boundary_points = freeform[0].details["boundary_points"]
+    assert len(boundary_points) == 4
+    assert {tuple(pt) for pt in boundary_points} == {
+        (0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (10.0, 4.0, 0.0), (0.0, 4.0, 0.0),
+    }
 
 
 def test_freeform_primitive_empty_details_when_unresolvable() -> None:

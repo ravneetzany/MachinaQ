@@ -337,6 +337,17 @@ class StepAnalyzer:
                     # primitive with a point but no direction as
                     # point-distance-only, which is exactly right here.
                     details['axis_px'], details['axis_py'], details['axis_pz'] = centroid
+                boundary_points = self.parser.get_face_boundary_points(fid)
+                if boundary_points:
+                    # Multiple position candidates, not just the one
+                    # centroid above — a large free-form patch's vertex
+                    # average can sit far from whichever specific point on
+                    # its surface was actually selected; a consumer checking
+                    # distance to the nearest of these instead is a
+                    # materially better approximation. See
+                    # add-freeform-surface-feature-detection design.md's
+                    # post-implementation correction.
+                    details['boundary_points'] = [list(pt) for pt in boundary_points]
                 if extents is not None or centroid is not None:
                     break
             primitives.append(SurfacePrimitive(
