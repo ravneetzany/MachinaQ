@@ -41,6 +41,17 @@ _CAM_WORKBENCH_CLASS_NAME = "CAMWorkbench"
 
 _toolbar_added = False
 _timer = QtCore.QTimer()
+# Anchor the timer's lifetime to the FreeCAD module itself (guaranteed to
+# stay alive for the whole application session) rather than relying on
+# InitGui.py's own module namespace staying referenced. An unparented
+# QTimer with no other strong reference can be garbage-collected — silently
+# stopping it from ever firing — if whatever loaded this file doesn't keep
+# its namespace alive after execution finishes. This is the kind of bug
+# that would explain intermittent "worked once, then silently didn't"
+# behavior with no error anywhere; not confirmed as the root cause of the
+# failures seen so far, but a real, well-known PySide/PyQt gotcha and a
+# free, safe fix regardless.
+FreeCAD._machinaq_cam_timer = _timer
 
 
 def _add_toolbar_if_cam_active() -> None:
