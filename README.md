@@ -97,6 +97,8 @@ STEP File
 | MachinaQUnified | 5 + 2 (multi-task) | Shared encoder, dual heads | (B, 3, 1024) point cloud |
 | AAGNet | 25 (MFInstSeg taxonomy) | Graph neural network | B-Rep adjacency graph |
 
+AAGNet has no trained checkpoint or inference wiring yet (`train_aagnet.py` prepares training, not inference). See [`docs/GNN_FEATURE_TAXONOMY_MAPPING.md`](docs/GNN_FEATURE_TAXONOMY_MAPPING.md) for how AAGNet's MFInstSeg taxonomy — and four related B-Rep-GNN works (BRepNet, UV-Net, Hierarchical CADNet, and the Graph Representation paper) — map onto MachinaQ's own `Feature.feature_type` schema, before any future change wires a model into the pipeline.
+
 ---
 
 ## Installation
