@@ -1,0 +1,21 @@
+## 1. Face detection rule
+
+- [x] 1.1 In `src/features.py`, add module-level threshold constants (e.g. `FACE_MIN_SHORT_EXTENT`, `FACE_MIN_LONG_EXTENT`) alongside the existing `SLOT_ASPECT_RATIO_THRESHOLD`/`SLOT_MIN_ADJACENT_FACES` constants, per design.md decision 2
+- [x] 1.2 Add `FeatureDetector.detect_faces()`: for each planar primitive with both `long_extent`/`short_extent` present in `details`, classify as a `face` feature when both independently exceed their minimum thresholds (design.md decision 2); include a rationale string citing the extent values, matching the style of `detect_bosses`/`detect_slots`/`detect_drills`
+- [x] 1.3 Wire `detect_faces()` into `detect_all_features()`: claim from the primitives remaining after drills/bosses/slots (per design.md decision 1's ordering), merge `face` face_ids into `matched_face_ids`, and include `faces` in the returned feature list and the debug log line's counts
+- [x] 1.4 Verify with unit tests in `tests/test_features.py` (or the project's existing feature-detection test file): a large planar primitive (both extents above threshold) is classified `face`; a planar primitive below threshold remains unclassified; a narrow/elongated planar primitive that would otherwise pass a large-area-alone check is still classified `slot`, not `face` (claimed first); a planar primitive missing extent data remains unclassified rather than erroring
+  - Verified: `.venv/bin/python -m pytest tests/test_features.py -q` — 13/13 passing (5 new tests added, one pre-existing test renamed/updated to reflect the intentional reclassification of large low-aspect-ratio planar faces from `unclassified` to `planar_face`, per design.md's Risks section). Feature type renamed `face` → `planar_face` after implementation — see design.md's "Naming correction" note.
+
+## 2. Pipeline and regression check
+
+- [x] 2.1 Confirm (no code change expected, per design.md's Context) that `src/pipeline.py`'s `analyze()` surfaces new `face` features and their classified operations end-to-end: run the existing pipeline test suite and add/extend one pipeline-level test asserting a fixture with a large planar face now appears as a `face` feature with a non-`unknown` operation in the report, instead of only in `unclassified_face_ids`
+  - Confirmed no `pipeline.py` change needed. Added `test_large_planar_faces_are_classified_and_operated_on` to `tests/test_pipeline.py`, verified against the real `HOLE_FIXTURE` STEP file: 2 large planar faces now report `feature_type: "planar_face"` with `operation: "3_axis_milling"` instead of appearing in `unclassified_face_ids`.
+- [x] 2.2 Search existing tests/fixtures for any assertion that a large planar face's `face_id` appears in `unclassified_face_ids` or that a part's `operations_summary`/`primary_process` is `unknown` because of this; update any that were implicitly relying on the old unclassified behavior for a face that should now be `face`-classified (design.md's Risks section)
+  - Searched: only `tests/test_features.py` and `tests/test_scad_ingest.py` call `FeatureDetector().detect_all_features()` directly. `test_features.py`'s one affected fixture (a 20x18 "top face") was updated in task 1.4. `test_scad_ingest.py`'s one call site only asserts `isinstance(..., list)`, unaffected. `test_operation_classifier.py`'s `Operation.UNKNOWN`/`primary_process` assertions build `Feature` objects directly (bypassing `FeatureDetector` entirely), so they're unaffected by this change.
+- [x] 2.3 Run the full test suite and confirm no unexpected regressions: `.venv/bin/python -m pytest tests/ --ignore=tests/test_parser.py -q`
+  - 92/92 passing (up from 87 before this change).
+
+## 3. Docs
+
+- [x] 3.1 If a top-level `README.md`/`docs/` section enumerates the recognized feature types (hole/boss/slot/thread/drill), add `face` to that list; verify by re-reading the updated section
+  - Updated `README.md`'s "Evidence-based rule engine" feature bullet and the `src/features.py` file-tree comment. Left the PointNet/AAGNet class-list docs (`docs/GENCAD_QUICK_REFERENCE.md`, `docs/POINTNET_VS_*_COMPARISON.md`, `docs/GNN_FEATURE_TAXONOMY_MAPPING.md`) unchanged — those describe fixed trained-model output classes (a separate subsystem from the rule engine), not something this change alters.

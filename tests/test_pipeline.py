@@ -100,6 +100,20 @@ def test_operation_predictions_present_with_checkpoint() -> None:
     assert "operations_summary" in report
 
 
+def test_large_planar_faces_are_classified_and_operated_on() -> None:
+    """A large planar face (e.g. a stock top face) must reach operation
+    classification as a `planar_face` feature, not be silently left in
+    `unclassified_face_ids` — see add-face-milling-feature-detection."""
+    analyzer = StepAnalyzer()
+    report = analyzer.analyze(HOLE_FIXTURE)
+
+    face_features = [f for f in report["features"] if f["feature_type"] == "planar_face"]
+    assert face_features
+    for feature in face_features:
+        assert feature["operation"] != "unknown"
+        assert feature["face_ids"][0] not in report["unclassified_face_ids"]
+
+
 def test_no_face_appears_in_more_than_one_feature_type() -> None:
     """Regression: end-to-end analysis on a real NIST file must not double-label a face."""
     analyzer = StepAnalyzer()

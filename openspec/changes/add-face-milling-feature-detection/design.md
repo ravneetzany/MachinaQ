@@ -1,0 +1,37 @@
+## Context
+
+`src/features.py`'s `FeatureDetector.detect_all_features()` claims primitives in order — drills, then bosses, then slots — from the pool not already claimed by hole/thread detection (`claimed_face_ids`, passed in from `pipeline.py`). Anything left over is reported as `unclassified_face_ids` and never becomes a `Feature`. `src/pipeline.py`'s `analyze()` already threads `detect_all_features()`'s two return values (`other_features`, `unclassified_face_ids`) straight into the report with no filtering in between — it does not know or care which feature types the detector currently supports, so adding a new claim rule inside `detect_all_features()` requires no `pipeline.py` change at all.
+
+`SurfacePrimitive.details` for planar primitives already carries `long_extent`/`short_extent` (`src/pipeline.py`'s `_extract_primitives()`, sourced from `parser.get_face_bounding_extents()`) — the same fields `detect_slots()` already reads for its aspect-ratio check. No new geometric computation is needed; this change only adds a second rule that reads the same fields differently.
+
+`operation_classifier.classify_feature()` already branches on `"planar" in ptypes` (both the with-axis and without-axis paths) and produces `3_axis_milling`/`5_axis_milling`/`face_milling` correctly — see proposal.md's Why. This design does not touch that function.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Give large planar faces not claimed by any existing rule a `planar_face` feature label, so they reach operation classification instead of being silently dropped into `unclassified_face_ids`.
+- Keep the size/extent threshold conservative enough that it doesn't reclassify faces that are already correctly `unclassified` today for other reasons (e.g. small/ambiguous planar fragments), preserving the "Unclassified faces are reported, not dropped or guessed" guarantee for genuinely inconclusive faces.
+
+**Non-Goals:**
+- Changing `operation_classifier.py`'s planar-primitive classification logic — it already does the right thing once a `Feature` exists.
+- Distinguishing a stock/reference face from a large machined flat face (e.g. a big pocket floor) — both are legitimately face-milling targets; this rule only needs to identify "large enough planar area, not already claimed" to be useful, not to model surface provenance.
+- Any FreeCAD addon changes — the addon's report rendering (`task_panel.py`) already displays whatever `features`/`operations_summary` the API returns; new `planar_face` entries appear automatically.
+
+## Decisions
+
+**Naming correction (post-implementation, user-caught):** the feature type was initially implemented as `face`, which the user pointed out conflates two distinct concepts — a detected *geometric feature* and `operation_classifier.Operation.FACE_MILLING`, a *required-operation* label decided separately, downstream, by `classify_feature`. Renamed the feature type (and the detector method, `detect_faces()` → `detect_planar_faces()`) to `planar_face` throughout the implementation, tests, and this change's own artifacts, to keep "what geometric feature is this" and "what operation does it need" unambiguous — matching every other feature type name in this module (`hole`, `boss`, `slot`, `thread`, `drill`), none of which are named after an operation either.
+
+**1. New `detect_planar_faces()` method on `FeatureDetector`, claimed last in `detect_all_features()`'s existing chain (after drills, bosses, slots).**
+Mirrors the existing method-per-feature-type structure (`detect_bosses`, `detect_slots`, `detect_drills`) rather than folding face detection into `detect_slots()` — slots and large faces are evidence-opposite (`detect_slots()` requires a *high* aspect ratio and a *narrow* adjacent-face-count band; a large face is closer to square/round and has no such adjacency constraint), so a separate method keeps each rule's evidence legible and independently testable, matching the module's existing style. Claimed last (after slots) since a genuinely narrow slot could otherwise also pass a naive large-area check on its long axis alone — running slot detection first and excluding its claimed faces avoids that overlap without needing extra logic in the new rule itself.
+
+**2. Threshold: both `short_extent` and `long_extent` must independently exceed a minimum absolute size, not an area or an aspect-ratio check.**
+Reusing `long_extent`/`short_extent` (already computed, per Context) avoids introducing a new geometric primitive. An area threshold (`long_extent * short_extent`) alone would misfire on the same narrow-but-long slot geometry `detect_slots()` is built to catch (a long, thin slot can have large area despite being clearly not a stock face); requiring `short_extent` alone to clear a minimum width directly rules that out, since a slot's defining trait is a *small* short extent. `long_extent` also has its own minimum so a small-but-roughly-square fragment doesn't qualify. Alternatives considered: percentile-of-largest-N-faces-in-the-part (rejected — relative ranking changes the same face's classification depending on unrelated faces elsewhere on the part, an odd invariant to explain and to test); reusing `adjacent_planar_count`/adjacency-count evidence the way `detect_slots()` does (rejected — a large face's *number* of neighbors varies too much by part topology to be reliable signal here, unlike slots where a bounded pocket has a predictable small wall count).
+Concrete threshold values are a task-level implementation detail (tests will pin the exact numbers against representative fixtures), not a design-level decision — the design commitment is the *shape* of the rule (two independent minimums on the existing extent fields), not the specific millimeter cutoffs.
+
+**3. Faces with missing `long_extent`/`short_extent` data are left unclassified by this rule, same as `detect_slots()`'s existing behavior.**
+`detect_slots()` already `continue`s past primitives without both extent fields (design.md's Context notes this is the same data source). The new rule follows the identical guard — consistent with the existing module's treatment of missing geometric evidence as "insufficient evidence for this rule," not an error.
+
+## Risks / Trade-offs
+
+- **[Risk]** A fixed absolute-size threshold is not scale-invariant — a tiny part (e.g. a small bracket, all dimensions under the threshold) may have no face ever qualify as `planar_face`, while a huge part could have faces qualify that a human wouldn't consider "large" relative to that part. → **Mitigation**: this mirrors the existing `SLOT_ASPECT_RATIO_THRESHOLD`/adjacency-count constants' own scale-relative-to-nothing design (already accepted precedent in this module); flagged here for visibility, not solved by this change. A future part-relative threshold (e.g. relative to overall bounding box) is a natural follow-up if this proves too coarse in practice, out of scope here.
+- **[Risk]** Claiming large planar faces changes `unclassified_face_ids` and `operations_summary` output for any part with such faces — a previously-`unknown`-heavy `PartOperationsSummary` may now show `3_axis_milling`/`5_axis_milling` as primary or secondary process where it didn't before. This is the intended effect (proposal.md's Why), but is a behavior change for any existing caller/test that implicitly depended on those faces staying unclassified. → **Mitigation**: task list includes checking existing tests/fixtures for this dependency before considering the change complete, per proposal.md's Impact section.

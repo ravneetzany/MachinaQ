@@ -23,7 +23,7 @@ An optional **AI Jury** stage uses three Claude agents (Engineer, Inspector, Jud
 
 - **Direct STEP parsing** — no OpenCASCADE or CAD kernel required for basic analysis
 - **Unit auto-detection** — heuristic + keyword detection of inch vs. metric files
-- **Evidence-based rule engine** — each face gets at most one feature label (hole/thread/boss/slot/drill), chosen from dimensions and face-adjacency topology rather than primitive type alone; faces with no qualifying evidence are reported as `unclassified_face_ids` instead of guessed
+- **Evidence-based rule engine** — each face gets at most one feature label (hole/thread/boss/slot/drill/planar_face), chosen from dimensions and face-adjacency topology rather than primitive type alone; faces with no qualifying evidence are reported as `unclassified_face_ids` instead of guessed
 - **CNC operation classification** — each feature (and the part as a whole) gets a required-operation label (turning / drilling / face milling / 3-axis milling / 5-axis milling) with a stated rationale, derived from primitive type and axis-coaxiality with the part's principal rotational axis
 - **Parametric-source ingestion** — classify `.scad` / FreeCAD `.py` part-generator scripts directly (static parsing, no CAD kernel), as an alternative to exporting STEP files first
 - **25-class GNN segmentation** — full per-face instance segmentation via AAGNet on MFInstSeg
@@ -297,7 +297,7 @@ MachinaQ/
 │   ├── pipeline.py             # Main orchestration
 │   ├── parser.py               # STEP text parser & unit detection
 │   ├── primitive.py            # B-Rep surface classification
-│   ├── features.py             # Evidence-based boss/slot/drill detection (holes/threads sourced from parser.py)
+│   ├── features.py             # Evidence-based boss/slot/drill/planar_face detection (holes/threads sourced from parser.py)
 │   ├── operation_classifier.py # Feature/part → required CNC operation
 │   ├── geometry.py             # Shared Axis/vector math (coaxiality, projections)
 │   ├── scad_ingest.py          # Static OpenSCAD (.scad) part parser
