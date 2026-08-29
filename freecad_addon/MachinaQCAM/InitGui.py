@@ -34,12 +34,42 @@ there is at least a visible diagnostic instead of total silence.
 import os
 import sys
 
-_ADDON_DIR = os.path.dirname(__file__)
-if _ADDON_DIR not in sys.path:
-    sys.path.insert(0, _ADDON_DIR)
-
 import FreeCAD
 import FreeCADGui as Gui
+
+# **Correction found via live testing (five rounds in):** FreeCAD executes
+# InitGui.py via exec() without setting `__file__` in the namespace — using
+# it (as every earlier version of this file did) raises NameError at this
+# exact line, silently halting the whole script before anything else runs.
+# This explains why InitGui.py never showed up in sys.modules either (same
+# symptom, consistent all along). FreeCAD does know the real path — it's
+# used as the synthetic filename in tracebacks — it just isn't exposed as a
+# namespace global. Resolved instead via FreeCAD's own reported Mod
+# locations (user AppData dir, then the system AppHomePath as a fallback),
+# checking which one actually contains this addon's files.
+def _resolve_addon_dir() -> str:
+    candidates = []
+    try:
+        candidates.append(os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "MachinaQCAM"))
+    except Exception:
+        pass
+    try:
+        candidates.append(os.path.join(FreeCAD.ConfigGet("AppHomePath"), "Mod", "MachinaQCAM"))
+    except Exception:
+        pass
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(candidate, "commands.py")):
+            return candidate
+    # Last resort: whichever sys.path entry looks like this addon's folder.
+    for entry in sys.path:
+        if entry.rstrip("/").endswith("MachinaQCAM") and os.path.isfile(os.path.join(entry, "commands.py")):
+            return entry
+    raise RuntimeError("MachinaQCAM: could not determine the addon's own directory")
+
+
+_ADDON_DIR = _resolve_addon_dir()
+if _ADDON_DIR not in sys.path:
+    sys.path.insert(0, _ADDON_DIR)
 
 _ICON_PATH = os.path.join(_ADDON_DIR, "Resources", "icons", "machinaq_classify.svg")
 _COMMAND_NAME = "MachinaQ_ClassifyFeature"
