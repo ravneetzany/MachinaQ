@@ -9,9 +9,10 @@
   <url type="repository" branch="main">https://github.com/ravneetzany/MachinaQ</url>
   <content>
     <workbench>
-      <classname>CAMWorkbench</classname>
+      <classname>MachinaQWorkbench</classname>
+      <subdirectory>./</subdirectory>
       <name>MachinaQCAM</name>
-      <description>Adds a "Classify Feature" command to the CAM workbench toolbar that submits the active document to a running MachinaQ API server and reports its feature/operation classification.</description>
+      <description>Adds a standalone "MachinaQ" workbench with a "Classify Feature" command that submits the active document to a running MachinaQ API server and reports its feature/operation classification.</description>
     </workbench>
   </content>
 </package>
