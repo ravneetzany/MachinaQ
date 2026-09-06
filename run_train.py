@@ -14,7 +14,7 @@ ap = argparse.ArgumentParser(
 )
 ap.add_argument(
     '--model',
-    choices=['gnn', 'pointnet', 'through-hole', 'unified', 'operation-classifier'],
+    choices=['gnn', 'pointnet', 'through-hole', 'unified', 'operation-classifier', 'mfcad24', 'fusion-seg'],
     default='gnn',
     help=(
         'Model to train: '
@@ -25,7 +25,11 @@ ap.add_argument(
         '          combining all three architectures into one system; '
         'operation-classifier = learned CNC-operation classifier, self-distilled '
         '          from operation_classifier.py\'s rules over NIST STEP + '
-        '          .scad + FreeCAD parts'
+        '          .scad + FreeCAD parts; '
+        'mfcad24 = 24-class PointNet classifier trained on nist_sfa/stl '
+        '          (0_Oring .. 23_6sides_pocket STL feature exports); '
+        'fusion-seg = per-point B-Rep face segmentation (8 classes) on the '
+        '          Fusion 360 Gallery segmentation dataset (nist_sfa/s2.0.0)'
     ),
 )
 ap.add_argument('--epochs',     type=int,   default=None, help='Override epoch count')
@@ -49,6 +53,8 @@ LOG_NAME = {
     'through-hole':         'through_hole_train.log',
     'unified':              'unified_train.log',
     'operation-classifier': 'operation_classifier_train.log',
+    'mfcad24':              'mfcad24_train.log',
+    'fusion-seg':           'fusion_seg_train.log',
 }.get(args.model, 'machinaq_train.log')
 LOG_PATH = os.path.join(ROOT, 'outputs', LOG_NAME)
 
@@ -75,8 +81,9 @@ if args.model == 'pointnet':
     LR         = args.lr         or 1e-3
     AUG        = args.aug
 
-    # Collect NIST .stp files + holeTrain .step files
-    nist_files = sorted(NIST_DIR.glob('nist_*.stp'))
+    # Collect NIST .stp files (including AP203 geometry-only / with-PMI
+    # subdirectory exports) + holeTrain .step files
+    nist_files = sorted(NIST_DIR.rglob('nist_*.stp'))
     hole_files = sorted(HOLE_DIR.glob('*.step'))
     all_files  = [str(f) for f in nist_files + hole_files]
 
@@ -132,8 +139,8 @@ if args.model == 'through-hole':
 
     # STC (Sheet Metal Test Cases) = all through holes by definition
     # FTC (Flat Test Cases)        = also mostly through holes
-    stc_files = sorted(NIST_DIR.glob('nist_stc_*.stp'))
-    ftc_files = sorted(NIST_DIR.glob('nist_ftc_*.stp'))
+    stc_files = sorted(NIST_DIR.rglob('nist_stc_*.stp'))
+    ftc_files = sorted(NIST_DIR.rglob('nist_ftc_*.stp'))
     all_files = [str(f) for f in stc_files + ftc_files]
 
     log.info('=' * 70)
@@ -184,8 +191,8 @@ if args.model == 'unified':
     AUG        = args.aug        or 20
 
     # Use STC + FTC files (all through holes by design) — same as through-hole branch
-    stc_files = sorted(NIST_DIR.glob('nist_stc_*.stp'))
-    ftc_files = sorted(NIST_DIR.glob('nist_ftc_*.stp'))
+    stc_files = sorted(NIST_DIR.rglob('nist_stc_*.stp'))
+    ftc_files = sorted(NIST_DIR.rglob('nist_ftc_*.stp'))
     all_files  = [str(f) for f in stc_files + ftc_files]
 
     # Resolve --merge-weights paths
@@ -269,6 +276,85 @@ if args.model == 'operation-classifier':
         lr=LR,
         output_path=SAVE_PATH,
     )
+    sys.exit(0)
+
+# ==============================================================================
+#  MFCAD24 branch (24-class PointNet on nist_sfa/stl)
+# ==============================================================================
+if args.model == 'mfcad24':
+    from src.train_mfcad24 import train_mfcad24
+
+    STL_ROOT  = os.path.join(ROOT, 'nist_sfa', 'stl')
+    SAVE_PATH = os.path.join(ROOT, 'outputs', 'machinaq_mfcad24.pth')
+
+    EPOCHS     = args.epochs     or 30
+    BATCH_SIZE = args.batch_size or 64
+    LR         = args.lr         or 1e-3
+
+    log.info('=' * 70)
+    log.info('MachinaQ MFCAD24 Training')
+    log.info('  24-class PointNet over nist_sfa/stl (0_Oring .. 23_6sides_pocket)')
+    log.info(f'  STL root         : {STL_ROOT}')
+    log.info(f'  Epochs           : {EPOCHS}')
+    log.info(f'  Batch size       : {BATCH_SIZE}')
+    log.info(f'  Learning rate    : {LR}')
+    log.info(f'  Save path        : {SAVE_PATH}')
+    log.info(f'  Log              : {LOG_PATH}')
+    log.info('=' * 70)
+
+    if not os.path.isdir(STL_ROOT):
+        log.error(f'STL directory not found: {STL_ROOT}')
+        sys.exit(1)
+
+    model = train_mfcad24(
+        STL_ROOT,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        lr=LR,
+    )
+    from models.pointnet import save_model as _save_pointnet
+    _save_pointnet(model, SAVE_PATH)
+    log.info(f'MFCAD24 model saved  ->  {SAVE_PATH}')
+    sys.exit(0)
+
+# ==============================================================================
+#  Fusion 360 Gallery segmentation branch (per-point B-Rep face labeling)
+# ==============================================================================
+if args.model == 'fusion-seg':
+    from src.train_fusion_seg import train_fusion_seg
+    from models.pointnet import save_model as _save_pointnet_seg
+
+    DATASET_ROOT = os.path.join(ROOT, 'nist_sfa', 's2.0.0')
+    SAVE_PATH    = os.path.join(ROOT, 'outputs', 'machinaq_fusion_seg.pth')
+
+    EPOCHS     = args.epochs     or 20
+    BATCH_SIZE = args.batch_size or 32
+    LR         = args.lr         or 1e-3
+
+    log.info('=' * 70)
+    log.info('MachinaQ Fusion-Seg Training')
+    log.info('  Per-point B-Rep face segmentation (8 classes) on the')
+    log.info('  Fusion 360 Gallery segmentation dataset')
+    log.info(f'  Dataset root     : {DATASET_ROOT}')
+    log.info(f'  Epochs           : {EPOCHS}')
+    log.info(f'  Batch size       : {BATCH_SIZE}')
+    log.info(f'  Learning rate    : {LR}')
+    log.info(f'  Save path        : {SAVE_PATH}')
+    log.info(f'  Log              : {LOG_PATH}')
+    log.info('=' * 70)
+
+    if not os.path.isdir(DATASET_ROOT):
+        log.error(f'Dataset directory not found: {DATASET_ROOT}')
+        sys.exit(1)
+
+    model = train_fusion_seg(
+        DATASET_ROOT,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        lr=LR,
+    )
+    _save_pointnet_seg(model, SAVE_PATH)
+    log.info(f'Fusion-Seg model saved  ->  {SAVE_PATH}')
     sys.exit(0)
 
 # ==============================================================================

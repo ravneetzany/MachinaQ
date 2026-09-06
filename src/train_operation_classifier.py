@@ -49,7 +49,7 @@ class OperationVectorDataset(Dataset):
 def _default_nist_paths() -> List[str]:
     root = Path(__file__).parent.parent
     paths = sorted(str(p) for p in (root / "nist_sfa" / "holeTrain").glob("*.step"))
-    paths += sorted(str(p) for p in (root / "nist_sfa").glob("*.stp"))
+    paths += sorted(str(p) for p in (root / "nist_sfa").rglob("*.stp"))
     return paths
 
 

@@ -40,6 +40,12 @@ nist_sfa/*.step
 nist_sfa/*.FCStd
 nist_sfa/holeTrain/
 
+# MFCAD24 STL dataset (24 classes x 1000 parts, ~500MB)
+nist_sfa/stl/
+
+# Fusion 360 Gallery segmentation dataset (35,680 parts, ~17GB)
+nist_sfa/s2.0.0/
+
 # Logs
 *.log
 outputs/

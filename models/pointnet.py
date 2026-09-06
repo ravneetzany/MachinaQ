@@ -96,6 +96,58 @@ class PointNetBinary(nn.Module):
         return self.forward(x).argmax(dim=1)
 
 
+class PointNetSeg(nn.Module):
+    """Per-point B-Rep face segmentation (Fusion 360 Gallery segmentation dataset).
+
+    Classes (default 8, see nist_sfa/s2.0.0/segment_names.json): ExtrudeSide,
+    ExtrudeEnd, CutSide, CutEnd, Fillet, Chamfer, RevolveSide, RevolveEnd.
+
+    Input: (B, in_channels, N) — xyz + unit surface normal per sampled point
+    (in_channels=6) by default, since side/end faces of the same primitive
+    are often only distinguishable by normal direction.
+    Output: (B, num_classes, N) per-point logits.
+    """
+
+    def __init__(self, num_classes: int = 8, in_channels: int = 6):
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_channels, 64, 1)
+        self.conv2 = nn.Conv1d(64, 64, 1)
+        self.conv3 = nn.Conv1d(64, 64, 1)
+        self.conv4 = nn.Conv1d(64, 128, 1)
+        self.conv5 = nn.Conv1d(128, 1024, 1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.bn3 = nn.BatchNorm1d(64)
+        self.bn4 = nn.BatchNorm1d(128)
+        self.bn5 = nn.BatchNorm1d(1024)
+
+        # Per-point head: local features (64) + broadcast global feature (1024)
+        self.seg1 = nn.Conv1d(1024 + 64, 512, 1)
+        self.seg2 = nn.Conv1d(512, 256, 1)
+        self.seg3 = nn.Conv1d(256, 128, 1)
+        self.seg4 = nn.Conv1d(128, num_classes, 1)
+        self.bns1 = nn.BatchNorm1d(512)
+        self.bns2 = nn.BatchNorm1d(256)
+        self.bns3 = nn.BatchNorm1d(128)
+        self.dropout = nn.Dropout(p=0.3)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        n = x.size(2)
+        x = F.relu(self.bn1(self.conv1(x)))
+        local = F.relu(self.bn2(self.conv2(x)))         # (B, 64, N)
+        x = F.relu(self.bn3(self.conv3(local)))
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = self.bn5(self.conv5(x))
+        global_feat = torch.max(x, 2, keepdim=True)[0].repeat(1, 1, n)  # (B, 1024, N)
+
+        x = torch.cat([local, global_feat], dim=1)       # (B, 1088, N)
+        x = F.relu(self.bns1(self.seg1(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bns2(self.seg2(x)))
+        x = F.relu(self.bns3(self.seg3(x)))
+        return self.seg4(x)                              # (B, num_classes, N)
+
+
 def save_model(model, path):
     torch.save(model.state_dict(), path)
 
