@@ -352,6 +352,7 @@ if args.model == 'fusion-seg':
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         lr=LR,
+        checkpoint_path=SAVE_PATH,
     )
     _save_pointnet_seg(model, SAVE_PATH)
     log.info(f'Fusion-Seg model saved  ->  {SAVE_PATH}')

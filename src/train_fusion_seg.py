@@ -97,6 +97,7 @@ def train_fusion_seg(
     max_test_samples: Optional[int] = None,
     num_workers: int = 0,
     device: Optional[torch.device] = None,
+    checkpoint_path: Optional[str] = None,
 ) -> PointNetSeg:
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     root = Path(dataset_root)
@@ -173,6 +174,9 @@ def train_fusion_seg(
         if test_acc >= best_acc:
             best_acc = test_acc
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            if checkpoint_path is not None:
+                torch.save(best_state, checkpoint_path)
+                logger.info("  * saved checkpoint -> %s", checkpoint_path)
 
     if best_state is not None:
         model.load_state_dict(best_state)
