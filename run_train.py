@@ -14,7 +14,7 @@ ap = argparse.ArgumentParser(
 )
 ap.add_argument(
     '--model',
-    choices=['gnn', 'pointnet', 'through-hole', 'unified', 'operation-classifier', 'mfcad24', 'fusion-seg'],
+    choices=['gnn', 'pointnet', 'through-hole', 'unified', 'operation-classifier', 'mfcad24', 'fusion-seg', 'primitive-geometry'],
     default='gnn',
     help=(
         'Model to train: '
@@ -29,7 +29,10 @@ ap.add_argument(
         'mfcad24 = 24-class PointNet classifier trained on nist_sfa/stl '
         '          (0_Oring .. 23_6sides_pocket STL feature exports); '
         'fusion-seg = per-point B-Rep face segmentation (8 classes) on the '
-        '          Fusion 360 Gallery segmentation dataset (nist_sfa/s2.0.0)'
+        '          Fusion 360 Gallery segmentation dataset (nist_sfa/s2.0.0); '
+        'primitive-geometry = 10-class PointNet classifier trained on '
+        '          data/primitive_geometry_stl (0_cone_boss .. 9_wedge_pocket '
+        '          single-primitive boss/pocket STL exports)'
     ),
 )
 ap.add_argument('--epochs',     type=int,   default=None, help='Override epoch count')
@@ -55,6 +58,7 @@ LOG_NAME = {
     'operation-classifier': 'operation_classifier_train.log',
     'mfcad24':              'mfcad24_train.log',
     'fusion-seg':           'fusion_seg_train.log',
+    'primitive-geometry':   'primitive_geometry_train.log',
 }.get(args.model, 'machinaq_train.log')
 LOG_PATH = os.path.join(ROOT, 'outputs', LOG_NAME)
 
@@ -315,6 +319,48 @@ if args.model == 'mfcad24':
     from models.pointnet import save_model as _save_pointnet
     _save_pointnet(model, SAVE_PATH)
     log.info(f'MFCAD24 model saved  ->  {SAVE_PATH}')
+    sys.exit(0)
+
+# ==============================================================================
+#  Primitive-geometry branch (10-class PointNet on data/primitive_geometry_stl)
+# ==============================================================================
+if args.model == 'primitive-geometry':
+    # Reuses train_mfcad24's loader/trainer as-is: it labels classes generically
+    # from any '<N>_<name>' folder structure, not specifically the 24-class set.
+    from src.train_mfcad24 import train_mfcad24
+
+    STL_ROOT  = os.path.join(ROOT, 'data', 'primitive_geometry_stl')
+    SAVE_PATH = os.path.join(ROOT, 'outputs', 'machinaq_primitive_geometry.pth')
+
+    EPOCHS     = args.epochs     or 40
+    BATCH_SIZE = args.batch_size or 16
+    LR         = args.lr         or 1e-3
+
+    log.info('=' * 70)
+    log.info('MachinaQ Primitive-Geometry Training')
+    log.info('  10-class PointNet over data/primitive_geometry_stl (0_cone_boss .. 9_wedge_pocket)')
+    log.info(f'  STL root         : {STL_ROOT}')
+    log.info(f'  Epochs           : {EPOCHS}')
+    log.info(f'  Batch size       : {BATCH_SIZE}')
+    log.info(f'  Learning rate    : {LR}')
+    log.info(f'  Save path        : {SAVE_PATH}')
+    log.info(f'  Log              : {LOG_PATH}')
+    log.info('=' * 70)
+
+    if not os.path.isdir(STL_ROOT):
+        log.error(f'STL directory not found: {STL_ROOT}')
+        sys.exit(1)
+
+    model = train_mfcad24(
+        STL_ROOT,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        lr=LR,
+        val_split=0.15,
+    )
+    from models.pointnet import save_model as _save_pointnet_prim
+    _save_pointnet_prim(model, SAVE_PATH)
+    log.info(f'Primitive-geometry model saved  ->  {SAVE_PATH}')
     sys.exit(0)
 
 # ==============================================================================

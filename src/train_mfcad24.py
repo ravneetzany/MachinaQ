@@ -113,14 +113,14 @@ def train_mfcad24(
 
     dataset = MFCAD24Dataset(Path(stl_root), n_points=n_points, max_per_class=max_per_class)
 
-    n_val = max(1, int(val_split * len(dataset)))
+    n_val = 0 if val_split <= 0 else max(1, int(val_split * len(dataset)))
     n_train = len(dataset) - n_val
     train_ds, val_ds = random_split(
         dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0)
     )
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0) if n_val > 0 else None
 
     model = PointNet(num_classes=dataset.num_classes).to(device)
     logger.info(
@@ -157,29 +157,34 @@ def train_mfcad24(
             train_total += labels.size(0)
         scheduler.step()
 
-        model.eval()
-        val_correct = 0
-        val_total = 0
-        with torch.no_grad():
-            for clouds, labels in val_loader:
-                clouds, labels = clouds.to(device), labels.to(device)
-                logits = model(clouds)
-                val_correct += (logits.argmax(dim=1) == labels).sum().item()
-                val_total += labels.size(0)
-
         train_acc = 100.0 * train_correct / max(train_total, 1)
-        val_acc = 100.0 * val_correct / max(val_total, 1)
-        logger.info(
-            "Ep [%3d/%3d]  loss=%.5f  train_acc=%.2f%%  val_acc=%.2f%%",
-            epoch + 1,
-            epochs,
-            train_loss / max(train_total, 1),
-            train_acc,
-            val_acc,
-        )
 
-        if val_acc >= best_val_acc:
-            best_val_acc = val_acc
+        if val_loader is not None:
+            model.eval()
+            val_correct = 0
+            val_total = 0
+            with torch.no_grad():
+                for clouds, labels in val_loader:
+                    clouds, labels = clouds.to(device), labels.to(device)
+                    logits = model(clouds)
+                    val_correct += (logits.argmax(dim=1) == labels).sum().item()
+                    val_total += labels.size(0)
+            val_acc = 100.0 * val_correct / max(val_total, 1)
+            logger.info(
+                "Ep [%3d/%3d]  loss=%.5f  train_acc=%.2f%%  val_acc=%.2f%%",
+                epoch + 1, epochs, train_loss / max(train_total, 1), train_acc, val_acc,
+            )
+            score = val_acc
+        else:
+            # No held-out split (val_split<=0): track/save against train_acc instead.
+            logger.info(
+                "Ep [%3d/%3d]  loss=%.5f  train_acc=%.2f%%  (no validation split)",
+                epoch + 1, epochs, train_loss / max(train_total, 1), train_acc,
+            )
+            score = train_acc
+
+        if score >= best_val_acc:
+            best_val_acc = score
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
 
     if best_state is not None:

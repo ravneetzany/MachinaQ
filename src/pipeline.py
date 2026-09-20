@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -16,11 +16,67 @@ from .geometry import Axis, axis_to_details
 from .features import Feature, FeatureDetector
 from .operation_classifier import FeatureOperation, Operation, PartOperationsSummary, classify_features, summarize_part
 from .operation_classifier_dataset import vectorize
+from .stl_ingest import sample_point_cloud, center_and_scale
 from models.pointnet import PointNet, load_model
 from models.operation_classifier_net import OperationClassifierNet
 from models.operation_classifier_net import load_model as load_operation_model
 
+try:
+    from OCC.Core.STEPControl import STEPControl_Reader
+    from OCC.Core.IFSelect import IFSelect_RetDone
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopAbs import TopAbs_FACE
+    from OCC.Core.TopoDS import topods
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.TopLoc import TopLoc_Location
+    OCC_MESH_AVAILABLE = True
+except Exception:
+    OCC_MESH_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+# Matches the LinearDeflection used to export data/primitive_geometry_stl's
+# training STLs (see the export script in that training session) — keeping
+# inference-time tessellation granularity consistent with training data.
+PRIMITIVE_GEOMETRY_LINEAR_DEFLECTION = 0.3
+
+
+def tessellate_step_to_points(step_path: str) -> Optional[np.ndarray]:
+    """Real BRep mesh-vertex point cloud for a STEP file, via OCC tessellation.
+
+    Returns None if pythonocc-core isn't available or the file fails to read/
+    mesh — callers should fall back to a coarser approximation in that case.
+    """
+    if not OCC_MESH_AVAILABLE:
+        return None
+    try:
+        reader = STEPControl_Reader()
+        if reader.ReadFile(step_path) != IFSelect_RetDone:
+            return None
+        reader.TransferRoots()
+        shape = reader.OneShape()
+        BRepMesh_IncrementalMesh(shape, PRIMITIVE_GEOMETRY_LINEAR_DEFLECTION)
+
+        points: List[Tuple[float, float, float]] = []
+        explorer = TopExp_Explorer(shape, TopAbs_FACE)
+        while explorer.More():
+            face = topods.Face(explorer.Current())
+            location = TopLoc_Location()
+            triangulation = BRep_Tool.Triangulation(face, location)
+            if triangulation is not None:
+                transform = location.Transformation()
+                for i in range(1, triangulation.NbNodes() + 1):
+                    pnt = triangulation.Node(i).Transformed(transform)
+                    points.append((pnt.X(), pnt.Y(), pnt.Z()))
+            explorer.Next()
+
+        if not points:
+            return None
+        return np.array(points, dtype=np.float32)
+    except Exception as e:
+        logger.error("OCC tessellation failed for %s: %s", step_path, e)
+        return None
 
 # Feature class mapping
 FEATURE_CLASSES = {
@@ -29,6 +85,21 @@ FEATURE_CLASSES = {
     2: "slot",
     3: "thread",
     4: "drill"
+}
+
+# Whole-part shape classes for the primitive-geometry model (see
+# data/primitive_geometry_stl and run_train.py's `primitive-geometry` target)
+PRIMITIVE_GEOMETRY_CLASSES = {
+    0: "cone_boss",
+    1: "cone_pocket",
+    2: "cylinder_boss",
+    3: "cylinder_pocket",
+    4: "polygon_boss",
+    5: "polygon_pocket",
+    6: "sphere_boss",
+    7: "sphere_pocket",
+    8: "wedge_boss",
+    9: "wedge_pocket",
 }
 
 
@@ -41,6 +112,8 @@ class StepAnalyzer:
         self._load_model()
         self.operation_model = None
         self._load_operation_model()
+        self.primitive_geometry_model = None
+        self._load_primitive_geometry_model()
 
     def _load_model(self) -> None:
         """Load trained PointNet model for inference."""
@@ -73,6 +146,28 @@ class StepAnalyzer:
         except Exception as e:
             logger.error("Failed to load operation-classifier model: %s", e)
             self.operation_model = None
+
+    def _load_primitive_geometry_model(self) -> None:
+        """Load the whole-part shape+operation classifier trained on
+        data/primitive_geometry_stl (see run_train.py's `primitive-geometry`
+        target). Purely supplementary, like the operation-classifier model:
+        absence is not an error.
+        """
+        try:
+            model_path = Path(__file__).parent.parent / "outputs" / "machinaq_primitive_geometry.pth"
+            if model_path.exists():
+                self.primitive_geometry_model = PointNet(num_classes=len(PRIMITIVE_GEOMETRY_CLASSES))
+                self.primitive_geometry_model = load_model(self.primitive_geometry_model, str(model_path))
+                self.primitive_geometry_model.eval()
+                logger.info("Loaded trained primitive-geometry model from %s", model_path)
+            else:
+                logger.info(
+                    "No trained primitive-geometry checkpoint at %s; skipping whole-part shape prediction",
+                    model_path,
+                )
+        except Exception as e:
+            logger.error("Failed to load primitive-geometry model: %s", e)
+            self.primitive_geometry_model = None
 
     def analyze(self, step_path: str) -> Dict[str, Any]:
         logger.info("Analyzing STEP file: %s", step_path)
@@ -113,7 +208,52 @@ class StepAnalyzer:
         if self.operation_model is not None:
             report["operation_predictions"] = self._predict_operations(features, primitives)
 
+        if self.primitive_geometry_model is not None:
+            report["primitive_geometry_prediction"] = self._predict_primitive_geometry(step_path)
+
         return report
+
+    def _predict_primitive_geometry(self, step_path: str) -> Optional[Dict[str, Any]]:
+        """Whole-part shape+operation prediction (e.g. "cone_boss").
+
+        Prefers a real BRep mesh-vertex point cloud from OCC tessellation
+        (matching how data/primitive_geometry_stl's training STLs were
+        produced — see tessellate_step_to_points). Falls back to the STEP
+        file's own CARTESIAN_POINT vertices when pythonocc-core isn't
+        available or tessellation fails — a coarser approximation, since
+        those are curve/surface construction points, not surface samples.
+        """
+        vertices = tessellate_step_to_points(step_path)
+        source = "occ_mesh"
+        if vertices is None:
+            points = self.parser.primitives.points
+            if len(points) < 8:
+                return None
+            vertices = np.array(points, dtype=np.float32)
+            source = "step_vertices"
+
+        try:
+            rng = np.random.default_rng(0)
+            cloud = sample_point_cloud(vertices, n_points=1024, rng=rng)
+            cloud = center_and_scale(cloud)
+            point_tensor = torch.from_numpy(cloud).transpose(0, 1).unsqueeze(0)  # (1, 3, 1024)
+
+            with torch.no_grad():
+                logits = self.primitive_geometry_model(point_tensor)[0]
+                probs = torch.softmax(logits, dim=0)
+                pred_idx = int(probs.argmax())
+
+            return {
+                "predicted_class": PRIMITIVE_GEOMETRY_CLASSES.get(pred_idx, "unknown"),
+                "confidence": float(probs[pred_idx]),
+                "point_cloud_source": source,
+                "probabilities": {
+                    PRIMITIVE_GEOMETRY_CLASSES[i]: float(probs[i]) for i in range(len(PRIMITIVE_GEOMETRY_CLASSES))
+                },
+            }
+        except Exception as e:
+            logger.error("Error during primitive-geometry prediction: %s", e)
+            return None
 
     def _predict_operations(self, features: List[Feature], primitives: List[SurfacePrimitive]) -> List[Dict[str, Any]]:
         """Optional, supplementary learned prediction alongside the

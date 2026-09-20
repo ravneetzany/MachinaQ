@@ -7,7 +7,7 @@
 # any kind. Safe to run from a plain terminal, cron, or CI: `./train_machinaq.sh`
 #
 # Usage:
-#   ./train_machinaq.sh [all|pointnet|through-hole|unified|operation-classifier|gnn] [-- extra run_train.py args]
+#   ./train_machinaq.sh [all|pointnet|through-hole|unified|operation-classifier|mfcad24|fusion-seg|primitive-geometry|gnn] [-- extra run_train.py args]
 #
 # Examples:
 #   ./train_machinaq.sh                       # train everything runnable on this machine
@@ -61,18 +61,18 @@ fi
 declare -a STAGES=()
 case "${TARGET}" in
     all)
-        STAGES=(pointnet through-hole unified operation-classifier mfcad24 fusion-seg)
+        STAGES=(pointnet through-hole unified operation-classifier mfcad24 fusion-seg primitive-geometry)
         if [[ "${GNN_AVAILABLE}" -eq 1 ]]; then
             STAGES+=(gnn)
         else
             echo "note: skipping gnn stage — needs 'dgl' + machgnn/dataset/MFInstSeg (not present here). Run './train_machinaq.sh gnn' to force it and see the actual error." | tee -a "${SUMMARY_LOG}"
         fi
         ;;
-    pointnet|through-hole|unified|operation-classifier|mfcad24|fusion-seg|gnn)
+    pointnet|through-hole|unified|operation-classifier|mfcad24|fusion-seg|primitive-geometry|gnn)
         STAGES=("${TARGET}")
         ;;
     *)
-        echo "error: unknown target '${TARGET}' (expected: all, pointnet, through-hole, unified, operation-classifier, mfcad24, fusion-seg, gnn)" >&2
+        echo "error: unknown target '${TARGET}' (expected: all, pointnet, through-hole, unified, operation-classifier, mfcad24, fusion-seg, primitive-geometry, gnn)" >&2
         exit 1
         ;;
 esac
