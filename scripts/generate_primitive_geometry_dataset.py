@@ -106,18 +106,39 @@ def build_tool(shape_kind: str, rng: random.Random) -> Tuple[TopoDS_Shape, float
         shape = _rotate(shape, (0, 0, 1), yaw)
         return shape, max(dxf, dyf) * 0.75
     if shape_kind == "wedge":
-        dxf = rng.uniform(16, 32)
-        dyf = rng.uniform(10, 22)  # becomes the vertical height after the +90 flip below
-        dzf = rng.uniform(10, 22)  # becomes horizontal depth after the +90 flip below
-        ltx = rng.uniform(0.0, dxf * 0.7)
-        shape = BRepPrimAPI_MakeWedge(dxf, dyf, dzf, ltx).Shape()
-        # Native wedge tapers along Y (dy), not Z. Rotate +90 about X so the
-        # taper direction becomes Z (wide base at z=0, narrow tip at +z) —
-        # the same "grows upward from base" convention as cone/cylinder.
-        shape = _rotate(shape, (1, 0, 0), math.pi / 2)
+        # Checked the real hand-made wedgeBoss.FCStd directly: its
+        # PartDesign::AdditiveWedge Placement has Yaw-Pitch-Roll=(0,0,0) —
+        # no rotation at all, just a Z translation onto the pad's top face.
+        # So native Z (0..dzf) IS already the vertical "up" axis (matching
+        # cone/cylinder/box's "grows upward from base at z=0" convention
+        # directly, no extra rotation needed), and native Y (0..dyf) is the
+        # taper direction, which runs HORIZONTALLY across the pad's top
+        # face, not vertically. An earlier version of this generator rotated
+        # the wedge +90 about X believing the taper direction should become
+        # vertical (like a pyramid narrowing as it rises) — that produced a
+        # systematically different, wrong shape and was the actual cause of
+        # a persistent, high-confidence wedge_boss -> polygon_boss
+        # misclassification across multiple retrainings (a real generator
+        # bug, not training variance or a footprint-scale issue).
+        dxf = rng.uniform(8, 24)   # width (X), horizontal
+        dyf = rng.uniform(10, 24)  # taper length (Y), horizontal
+        dzf = rng.uniform(8, 24)   # height (Z), vertical — native, unrotated
+        # Centered on the real example's ~0.6 taper (not at a range edge —
+        # a range like [0.2, 0.6] made 0.6 the least-typical value in its
+        # own class, and the model misclassified the real file even via its
+        # own native STL, not just through the STEP/OCC round-trip).
+        taper_x = rng.uniform(0.35, 0.75)
+        taper_z = rng.uniform(0.35, 0.75)
+        top_w = dxf * taper_x
+        top_h = dzf * taper_z
+        xmin = (dxf - top_w) / 2.0
+        xmax = xmin + top_w
+        zmin = (dzf - top_h) / 2.0
+        zmax = zmin + top_h
+        shape = BRepPrimAPI_MakeWedge(dxf, dyf, dzf, xmin, zmin, xmax, zmax).Shape()
         yaw = rng.uniform(0, 2 * math.pi)
         shape = _rotate(shape, (0, 0, 1), yaw)
-        return shape, max(dxf, dzf) * 0.75
+        return shape, max(dxf, dyf) * 0.75
     raise ValueError(f"unknown shape_kind: {shape_kind}")
 
 

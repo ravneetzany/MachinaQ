@@ -108,18 +108,27 @@ def train_mfcad24(
     val_split: float = 0.1,
     max_per_class: Optional[int] = None,
     device: Optional[torch.device] = None,
+    seed: int = 0,
 ) -> PointNet:
+    """`seed` fixes the dataset split, model weight init, and DataLoader
+    shuffling — on small datasets (e.g. primitive-geometry's ~1000 samples)
+    accuracy otherwise varies substantially run to run, since only the
+    dataset split used to be seeded here."""
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.manual_seed(seed)
 
     dataset = MFCAD24Dataset(Path(stl_root), n_points=n_points, max_per_class=max_per_class)
 
     n_val = 0 if val_split <= 0 else max(1, int(val_split * len(dataset)))
     n_train = len(dataset) - n_val
     train_ds, val_ds = random_split(
-        dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0)
+        dataset, [n_train, n_val], generator=torch.Generator().manual_seed(seed)
     )
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, num_workers=0,
+        generator=torch.Generator().manual_seed(seed),
+    )
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0) if n_val > 0 else None
 
     model = PointNet(num_classes=dataset.num_classes).to(device)

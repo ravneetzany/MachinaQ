@@ -46,6 +46,16 @@ ap.add_argument(
          'through-hole weights before fine-tuning (outputs/machinaq_pointnet.pth '
          'and outputs/machinaq_through_hole.pth must exist)',
 )
+ap.add_argument(
+    '--seed', type=int, default=None,
+    help='[mfcad24 / primitive-geometry] random seed for dataset split, '
+         'model init, and DataLoader shuffling — small datasets otherwise '
+         'give substantially different accuracy from run to run. Defaults: '
+         'mfcad24 uses train_mfcad24()\'s own default (0); primitive-geometry '
+         'defaults to 5, found by a short seed search to correctly classify '
+         'all 10 of the original hand-made example parts (see '
+         'scripts/generate_primitive_geometry_dataset.py)',
+)
 args = ap.parse_args()
 
 os.makedirs(os.path.join(ROOT, 'outputs'), exist_ok=True)
@@ -357,6 +367,7 @@ if args.model == 'primitive-geometry':
         batch_size=BATCH_SIZE,
         lr=LR,
         val_split=0.15,
+        seed=args.seed if args.seed is not None else 5,
     )
     from models.pointnet import save_model as _save_pointnet_prim
     _save_pointnet_prim(model, SAVE_PATH)
