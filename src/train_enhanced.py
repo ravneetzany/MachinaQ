@@ -1,9 +1,10 @@
 """Enhanced training pipeline for hole detection using holeTrain data."""
 
 import logging
+import os
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -121,39 +122,61 @@ class AugmentedHoleDataset(Dataset):
         return point_cloud, label
 
 
-def train_enhanced_pointnet(step_files: List[str], epochs: int = 20, batch_size: int = 32, 
-                          lr: float = 0.001, augmentation_factor: int = 10):
-    """Train PointNet model with augmented holeTrain data."""
-    
+def train_enhanced_pointnet(step_files: List[str], epochs: int = 20, batch_size: int = 32,
+                          lr: float = 0.001, augmentation_factor: int = 10,
+                          checkpoint_path: Optional[str] = None):
+    """Train PointNet model with augmented holeTrain data.
+
+    If `checkpoint_path` is given, a checkpoint (model/optimizer/scheduler
+    state + epoch + early-stopping counters) is written after every epoch,
+    and training resumes from it automatically if the file already exists —
+    so an interrupted run (e.g. a container restart) can be continued by
+    simply re-invoking this function with the same checkpoint_path.
+    """
+
     logger.info(f"Generating augmented training dataset from {len(step_files)} holeTrain files...")
     logger.info(f"Augmentation factor: {augmentation_factor}x")
-    
+
     dataset = AugmentedHoleDataset(step_files, num_samples=20, augmentation_factor=augmentation_factor)
-    
+
     if len(dataset) == 0:
         logger.error("No training data generated. Ensure STEP files are valid.")
         return None
-    
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    
+
+    num_workers = min(4, os.cpu_count() or 1)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                             num_workers=num_workers,
+                             persistent_workers=num_workers > 0)
+
     # Initialize model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = PointNet(num_classes=5).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
-    
+
     # Learning rate scheduler for better convergence
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, 
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,
                                                       patience=3)
-    
+
     logger.info(f"Training on {len(dataset)} augmented samples using device: {device}")
     logger.info(f"Dataset size: {len(dataset)} samples, batch size: {batch_size}")
-    
+
     best_loss = float('inf')
     patience_counter = 0
     max_patience = 5
-    
-    for epoch in range(epochs):
+    start_epoch = 0
+
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        ckpt = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(ckpt['model_state'])
+        optimizer.load_state_dict(ckpt['optimizer_state'])
+        scheduler.load_state_dict(ckpt['scheduler_state'])
+        best_loss = ckpt['best_loss']
+        patience_counter = ckpt['patience_counter']
+        start_epoch = ckpt['epoch'] + 1
+        logger.info(f"Resuming from checkpoint {checkpoint_path} at epoch {start_epoch + 1}")
+
+    for epoch in range(start_epoch, epochs):
         model.train()
         total_loss = 0
         correct = 0
@@ -192,10 +215,21 @@ def train_enhanced_pointnet(step_files: List[str], epochs: int = 20, batch_size:
             patience_counter = 0
         else:
             patience_counter += 1
-            if patience_counter >= max_patience:
-                logger.info(f"Early stopping triggered after epoch {epoch+1}")
-                break
-    
+
+        if checkpoint_path:
+            torch.save({
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+                'scheduler_state': scheduler.state_dict(),
+                'epoch': epoch,
+                'best_loss': best_loss,
+                'patience_counter': patience_counter,
+            }, checkpoint_path)
+
+        if patience_counter >= max_patience:
+            logger.info(f"Early stopping triggered after epoch {epoch+1}")
+            break
+
     logger.info("Training complete!")
     return model
 
