@@ -89,6 +89,9 @@ if args.model == 'pointnet':
     NIST_DIR  = Path(ROOT) / 'nist_sfa'
     HOLE_DIR  = NIST_DIR / 'holeTrain'
     SAVE_PATH = os.path.join(ROOT, 'outputs', 'machinaq_pointnet.pth')
+    CKPT_DIR  = os.path.join(ROOT, 'outputs', 'checkpoints')
+    os.makedirs(CKPT_DIR, exist_ok=True)
+    CKPT_PATH = os.path.join(CKPT_DIR, 'pointnet_ckpt.pth')
 
     EPOCHS     = args.epochs     or 20
     BATCH_SIZE = args.batch_size or 16
@@ -124,6 +127,7 @@ if args.model == 'pointnet':
         batch_size=BATCH_SIZE,
         lr=LR,
         augmentation_factor=AUG,
+        checkpoint_path=CKPT_PATH,
     )
 
     if model:
@@ -145,6 +149,9 @@ if args.model == 'through-hole':
 
     NIST_DIR  = _Path(ROOT) / 'nist_sfa'
     SAVE_PATH = os.path.join(ROOT, 'outputs', 'machinaq_through_hole.pth')
+    CKPT_DIR  = os.path.join(ROOT, 'outputs', 'checkpoints')
+    os.makedirs(CKPT_DIR, exist_ok=True)
+    CKPT_PATH = os.path.join(CKPT_DIR, 'through_hole_ckpt.pth')
 
     EPOCHS     = args.epochs     or 30
     BATCH_SIZE = args.batch_size or 32
@@ -179,6 +186,7 @@ if args.model == 'through-hole':
         batch_size=BATCH_SIZE,
         lr=LR,
         aug_factor=AUG,
+        checkpoint_path=CKPT_PATH,
     )
     save_model(model, SAVE_PATH)
     log.info(f'Through-hole model saved  ->  {SAVE_PATH}')
@@ -194,6 +202,9 @@ if args.model == 'unified':
 
     NIST_DIR  = _Path(ROOT) / 'nist_sfa'
     SAVE_PATH = os.path.join(ROOT, 'outputs', 'machinaq_unified.pth')
+    CKPT_DIR  = os.path.join(ROOT, 'outputs', 'checkpoints')
+    os.makedirs(CKPT_DIR, exist_ok=True)
+    CKPT_PATH = os.path.join(CKPT_DIR, 'unified_ckpt.pth')
 
     # Pre-trained weight paths for optional --merge-weights initialisation
     POINTNET_PTH    = os.path.join(ROOT, 'outputs', 'machinaq_pointnet.pth')
@@ -246,6 +257,7 @@ if args.model == 'unified':
         hole_weight         = 1.0,
         pretrained_pointnet = pn_path,
         pretrained_binary   = th_path,
+        checkpoint_path     = CKPT_PATH,
     )
 
     save_unified(model, SAVE_PATH)

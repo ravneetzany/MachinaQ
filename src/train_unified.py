@@ -236,6 +236,7 @@ def train_unified(
     pretrained_unified:  Optional[str] = None,
     pretrained_pointnet: Optional[str] = None,
     pretrained_binary:   Optional[str] = None,
+    checkpoint_path:     Optional[str] = None,
 ) -> MachinaQUnified:
     """Train MachinaQUnified with multi-task loss.
 
@@ -250,6 +251,8 @@ def train_unified(
         pretrained_unified:  load an existing unified checkpoint to fine-tune
         pretrained_pointnet: PointNet weights to seed encoder + feat head
         pretrained_binary:   PointNetBinary weights to seed encoder + hole head
+        checkpoint_path:     if given, save a resumable checkpoint after every
+            epoch, and resume from it automatically if it already exists.
 
     Returns:
         Trained MachinaQUnified.
@@ -259,19 +262,27 @@ def train_unified(
     if len(dataset) == 0:
         raise RuntimeError("Dataset is empty — no valid STEP files.")
 
+    # run_train.py has no `if __name__ == '__main__':` guard, so Windows
+    # (spawn) multiprocessing would re-exec the whole script per worker.
+    # Stay single-process there; use real workers elsewhere.
+    num_workers = min(4, os.cpu_count() or 1) if os.name != 'nt' else 0
     loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, drop_last=True
+        dataset, batch_size=batch_size, shuffle=True, drop_last=True,
+        num_workers=num_workers, persistent_workers=num_workers > 0,
     )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model  = MachinaQUnified(num_feature_classes=len(FEATURE_CLASSES)).to(device)
 
-    # ── Weight initialisation ─────────────────────────────────────────────────
-    if pretrained_unified and os.path.exists(pretrained_unified):
+    resuming = bool(checkpoint_path and os.path.exists(checkpoint_path))
+
+    # ── Weight initialisation (skipped when resuming — the checkpoint already
+    #    holds the merged/fine-tuned weights) ──────────────────────────────────
+    if not resuming and pretrained_unified and os.path.exists(pretrained_unified):
         ckpt = load_unified(pretrained_unified, device=str(device))
         model.load_state_dict(ckpt.state_dict())
         logger.info(f"Fine-tuning from unified checkpoint: {pretrained_unified}")
-    elif pretrained_pointnet or pretrained_binary:
+    elif not resuming and (pretrained_pointnet or pretrained_binary):
         model = merge_pretrained_weights(
             model, pretrained_pointnet, pretrained_binary, str(device)
         )
@@ -297,9 +308,20 @@ def train_unified(
     best_loss    = float('inf')
     patience_ctr = 0
     MAX_PATIENCE = 6
+    start_epoch  = 0
+
+    if resuming:
+        ckpt = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(ckpt['model_state'])
+        optimizer.load_state_dict(ckpt['optimizer_state'])
+        scheduler.load_state_dict(ckpt['scheduler_state'])
+        best_loss    = ckpt['best_loss']
+        patience_ctr = ckpt['patience_ctr']
+        start_epoch  = ckpt['epoch'] + 1
+        logger.info(f"Resuming from checkpoint {checkpoint_path} at epoch {start_epoch + 1}")
 
     # ── Training loop ─────────────────────────────────────────────────────────
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         total_loss = 0.0
         correct_feat = correct_hole = total = 0
@@ -342,12 +364,23 @@ def train_unified(
             patience_ctr = 0
         else:
             patience_ctr += 1
-            if patience_ctr >= MAX_PATIENCE:
-                logger.info(
-                    f"Early stopping at epoch {epoch + 1} "
-                    f"(patience={MAX_PATIENCE})"
-                )
-                break
+
+        if checkpoint_path:
+            torch.save({
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+                'scheduler_state': scheduler.state_dict(),
+                'epoch': epoch,
+                'best_loss': best_loss,
+                'patience_ctr': patience_ctr,
+            }, checkpoint_path)
+
+        if patience_ctr >= MAX_PATIENCE:
+            logger.info(
+                f"Early stopping at epoch {epoch + 1} "
+                f"(patience={MAX_PATIENCE})"
+            )
+            break
 
     logger.info(f"Training complete. Best loss: {best_loss:.5f}")
     return model

@@ -25,9 +25,10 @@ generalises to real part geometries.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -256,6 +257,7 @@ def train_through_hole_classifier(
     batch_size: int   = 32,
     lr:         float = 1e-3,
     aug_factor: int   = 20,
+    checkpoint_path: Optional[str] = None,
 ) -> PointNetBinary:
     """Train and return a PointNetBinary through-hole classifier.
 
@@ -265,14 +267,22 @@ def train_through_hole_classifier(
         batch_size : mini-batch size
         lr         : initial learning rate (cosine-annealed)
         aug_factor : augmentations per real hole sample
+        checkpoint_path : if given, save a resumable checkpoint after every
+            epoch, and resume from it automatically if it already exists.
     """
     logger.info("Building through-hole dataset …")
     dataset = ThroughHoleDataset(step_files, aug_factor=aug_factor)
     if len(dataset) == 0:
         raise RuntimeError("Dataset is empty — no valid STEP files.")
 
+    # run_train.py has no `if __name__ == '__main__':` guard, so Windows
+    # (spawn) multiprocessing would re-exec the whole script per worker.
+    # Stay single-process there; use real workers elsewhere.
+    num_workers = min(4, os.cpu_count() or 1) if os.name != 'nt' else 0
     loader = DataLoader(dataset, batch_size=batch_size,
-                        shuffle=True, drop_last=True)
+                        shuffle=True, drop_last=True,
+                        num_workers=num_workers,
+                        persistent_workers=num_workers > 0)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model  = PointNetBinary().to(device)
@@ -295,8 +305,19 @@ def train_through_hole_classifier(
     best_loss    = float('inf')
     patience_ctr = 0
     MAX_PATIENCE = 6
+    start_epoch  = 0
 
-    for epoch in range(epochs):
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        ckpt = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(ckpt['model_state'])
+        optimizer.load_state_dict(ckpt['optimizer_state'])
+        scheduler.load_state_dict(ckpt['scheduler_state'])
+        best_loss    = ckpt['best_loss']
+        patience_ctr = ckpt['patience_ctr']
+        start_epoch  = ckpt['epoch'] + 1
+        logger.info(f"Resuming from checkpoint {checkpoint_path} at epoch {start_epoch + 1}")
+
+    for epoch in range(start_epoch, epochs):
         model.train()
         total_loss = correct = total = 0
 
@@ -327,9 +348,20 @@ def train_through_hole_classifier(
             patience_ctr = 0
         else:
             patience_ctr += 1
-            if patience_ctr >= MAX_PATIENCE:
-                logger.info(f"Early stop at epoch {epoch+1} (patience={MAX_PATIENCE})")
-                break
+
+        if checkpoint_path:
+            torch.save({
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+                'scheduler_state': scheduler.state_dict(),
+                'epoch': epoch,
+                'best_loss': best_loss,
+                'patience_ctr': patience_ctr,
+            }, checkpoint_path)
+
+        if patience_ctr >= MAX_PATIENCE:
+            logger.info(f"Early stop at epoch {epoch+1} (patience={MAX_PATIENCE})")
+            break
 
     logger.info(f"Training complete. Best loss: {best_loss:.5f}")
     return model
