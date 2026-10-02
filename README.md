@@ -264,6 +264,13 @@ python run_train.py --model operation-classifier
 Training artifacts are saved to `outputs/`:
 - Logs: `outputs/<model>_train.log`
 - Best checkpoint: `outputs/machinaq_<model>.pth`
+- Resumable per-epoch checkpoint (pointnet/through-hole/unified): `outputs/checkpoints/<model>_ckpt.pth` — if training is interrupted, re-running the same command resumes from it automatically instead of starting over.
+
+To train all four models in sequence, skipping ones already trained and resuming any that were interrupted:
+
+```bash
+./train_all_models.sh
+```
 
 ---
 

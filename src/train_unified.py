@@ -262,7 +262,10 @@ def train_unified(
     if len(dataset) == 0:
         raise RuntimeError("Dataset is empty — no valid STEP files.")
 
-    num_workers = min(4, os.cpu_count() or 1)
+    # run_train.py has no `if __name__ == '__main__':` guard, so Windows
+    # (spawn) multiprocessing would re-exec the whole script per worker.
+    # Stay single-process there; use real workers elsewhere.
+    num_workers = min(4, os.cpu_count() or 1) if os.name != 'nt' else 0
     loader = DataLoader(
         dataset, batch_size=batch_size, shuffle=True, drop_last=True,
         num_workers=num_workers, persistent_workers=num_workers > 0,

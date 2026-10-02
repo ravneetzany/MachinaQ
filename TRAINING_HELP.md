@@ -65,6 +65,33 @@ Ep   1/100  312s  loss=1.2341/1.1892  seg_iou=0.412/0.389  inst_f1=0.731/0.698  
 
 ---
 
+## Resuming Interrupted Training
+
+The `pointnet`, `through-hole`, and `unified` trainers save a resumable
+checkpoint (model + optimizer + scheduler state + epoch number) to
+`outputs/checkpoints/<model>_ckpt.pth` after **every** epoch — not just at
+the end. If training is interrupted (crash, reboot, Ctrl+C), just re-run the
+exact same `python run_train.py --model <model> ...` command: it detects the
+checkpoint and continues from the next epoch instead of starting over.
+`operation-classifier` already saved its best checkpoint on every improving
+epoch and needs no separate resume step.
+
+`train_all_models.sh` (repo root) runs all four models — pointnet,
+through-hole, unified (`--merge-weights`), operation-classifier — in order,
+skipping any whose final `outputs/machinaq_<model>.pth` already exists and
+resuming any in-progress one from its checkpoint. Safe to re-run after any
+interruption:
+
+```bash
+./train_all_models.sh
+```
+
+Note: DataLoader multi-worker loading (`num_workers>0`) is intentionally
+disabled on Windows in these trainers, since `run_train.py` has no
+`if __name__ == '__main__':` guard and Windows' spawn-based multiprocessing
+would otherwise re-execute the whole script in each worker process. Windows
+runs are single-process; Linux/macOS use up to 4 workers.
+
 ## Installed Dependencies
 
 | Package | Location |

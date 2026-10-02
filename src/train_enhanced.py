@@ -143,7 +143,11 @@ def train_enhanced_pointnet(step_files: List[str], epochs: int = 20, batch_size:
         logger.error("No training data generated. Ensure STEP files are valid.")
         return None
 
-    num_workers = min(4, os.cpu_count() or 1)
+    # Worker processes require `if __name__ == '__main__':` guarding the
+    # launch script on Windows (spawn, not fork) — run_train.py has no such
+    # guard, so multi-process loading would re-exec the whole script in each
+    # worker. Stay single-process there; use real workers elsewhere.
+    num_workers = min(4, os.cpu_count() or 1) if os.name != 'nt' else 0
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
                              num_workers=num_workers,
                              persistent_workers=num_workers > 0)
